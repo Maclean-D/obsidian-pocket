@@ -1,4 +1,4 @@
-# Pocket Sync
+# Pocket Sync for Obsidian
 
 ![Pocket Sync](obsidian-pocket.png)
 
