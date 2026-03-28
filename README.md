@@ -2,7 +2,7 @@
 
 ![Pocket Sync](obsidian-pocket.png)
 
-Sync Pocket conversations and daily highlights into Obsidian notes.
+Sync Pocket AI conversations and daily highlights into Markdown notes.
 
 ## Features
 
