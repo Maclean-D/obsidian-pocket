@@ -22,7 +22,6 @@ export default class PocketSyncPlugin extends Plugin {
 		this.stateStore = new SyncStateStore(this);
 		this.syncService = new SyncService(this.app, () => this.settings, this.stateStore);
 
-		// eslint-disable-next-line obsidianmd/ui/sentence-case
 		this.addRibbonIcon("refresh-cw", "Sync Pocket now", () => {
 			void this.runSync({
 				scope: "all",

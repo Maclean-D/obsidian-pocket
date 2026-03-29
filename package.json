@@ -1,6 +1,6 @@
 {
 	"name": "pocket-sync",
-	"version": "1.0.0",
+	"version": "1.0.1",
 	"description": "Sync Pocket AI conversations and daily highlights into Markdown notes.",
 	"main": "main.js",
 	"type": "module",

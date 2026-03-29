@@ -1,7 +1,7 @@
 {
 	"id": "pocket-sync",
 	"name": "Pocket Sync",
-	"version": "1.0.0",
+	"version": "1.0.1",
 	"minAppVersion": "0.15.0",
 	"description": "Sync Pocket AI conversations and daily highlights into Markdown notes.",
 	"author": "Maclean",

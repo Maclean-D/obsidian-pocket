@@ -110,7 +110,7 @@ export class PocketSyncSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Verbose sync logging")
-			.setDesc("Log pocket sync internals to the developer console for troubleshooting.")
+			.setDesc("Log sync internals to the developer console for troubleshooting.")
 			.addToggle((toggle) =>
 				toggle.setValue(this.plugin.settings.verboseSyncLogging).onChange(async (value) => {
 					await this.plugin.updateSettings({ verboseSyncLogging: value });
@@ -122,7 +122,7 @@ export class PocketSyncSettingTab extends PluginSettingTab {
 		this.addSectionHeading(containerEl, "Sync scope");
 		new Setting(containerEl)
 			.setName("Sync conversations")
-			.setDesc("Import standard pocket recordings with summaries, action items, and optional transcripts.")
+			.setDesc("Import standard Pocket recordings with summaries, action items, and optional transcripts.")
 			.addToggle((toggle) =>
 				toggle.setValue(this.plugin.settings.syncConversations).onChange(async (value) => {
 					await this.plugin.updateSettings({ syncConversations: value });
@@ -131,7 +131,7 @@ export class PocketSyncSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Sync daily highlights")
-			.setDesc("Import pocket daily highlights recordings, which are usually summary-only.")
+			.setDesc("Import Pocket daily highlights recordings, which are usually summary-only.")
 			.addToggle((toggle) =>
 				toggle.setValue(this.plugin.settings.syncDailyHighlights).onChange(async (value) => {
 					await this.plugin.updateSettings({ syncDailyHighlights: value });
@@ -140,7 +140,7 @@ export class PocketSyncSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Include tags")
-			.setDesc("Comma-separated pocket tag names. Leave empty to include every tag.")
+			.setDesc("Comma-separated Pocket tag names. Leave empty to include every tag.")
 			.addText((text) => {
 				text.setValue(this.plugin.settings.includeTags);
 				text.onChange(async (value) => {
@@ -150,7 +150,7 @@ export class PocketSyncSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Exclude tags")
-			.setDesc("Comma-separated pocket tag names to ignore.")
+			.setDesc("Comma-separated Pocket tag names to ignore.")
 			.addText((text) => {
 				text.setValue(this.plugin.settings.excludeTags);
 				text.onChange(async (value) => {
@@ -246,8 +246,8 @@ export class PocketSyncSettingTab extends PluginSettingTab {
 	private renderOrganizationSection(containerEl: HTMLElement): void {
 		this.addSectionHeading(containerEl, "Note organization");
 		new Setting(containerEl)
-			.setName("Base pocket folder")
-			.setDesc("Root folder for everything pocket sync creates.")
+			.setName("Base Pocket folder")
+			.setDesc("Root folder for everything this plugin creates.")
 			.addText((text) => {
 				text.setPlaceholder("Pocket");
 				text.setValue(this.plugin.settings.baseFolder);
@@ -258,7 +258,7 @@ export class PocketSyncSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Conversation folder")
-			.setDesc("Folder under the base pocket folder for standard recordings.")
+			.setDesc("Folder under the base Pocket folder for standard recordings.")
 			.addText((text) => {
 				text.setPlaceholder("Conversations");
 				text.setValue(this.plugin.settings.conversationFolder);
@@ -269,7 +269,7 @@ export class PocketSyncSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Daily highlights folder")
-			.setDesc("Folder under the base pocket folder for daily highlight notes.")
+			.setDesc("Folder under the base Pocket folder for daily highlight notes.")
 			.addText((text) => {
 				text.setPlaceholder("Daily highlights");
 				text.setValue(this.plugin.settings.dailyHighlightsFolder);
@@ -360,7 +360,7 @@ export class PocketSyncSettingTab extends PluginSettingTab {
 
 	private renderContentSection(containerEl: HTMLElement): void {
 		this.addSectionHeading(containerEl, "Note content");
-		this.addToggleSetting(containerEl, "Include frontmatter", "Store pocket metadata as normal Obsidian properties.", this.plugin.settings.includeFrontmatter, async (value) =>
+		this.addToggleSetting(containerEl, "Include frontmatter", "Store Pocket metadata as normal Obsidian properties.", this.plugin.settings.includeFrontmatter, async (value) =>
 			this.plugin.updateSettings({ includeFrontmatter: value }),
 		);
 		this.addToggleSetting(containerEl, "Include Pocket metadata section", "Render a Markdown section with timestamps, duration, status, and tags.", this.plugin.settings.includeMetadataSection, async (value) =>
@@ -384,7 +384,7 @@ export class PocketSyncSettingTab extends PluginSettingTab {
 		this.addToggleSetting(containerEl, "Include transcript timestamps", "Prefix transcript segments with Pocket timestamps.", this.plugin.settings.includeTranscriptTimestamps, async (value) =>
 			this.plugin.updateSettings({ includeTranscriptTimestamps: value }),
 		);
-		this.addToggleSetting(containerEl, "Include Pocket tags in frontmatter", "Store pocket tags as a normal frontmatter property.", this.plugin.settings.includeTagsInFrontmatter, async (value) =>
+		this.addToggleSetting(containerEl, "Include Pocket tags in frontmatter", "Store Pocket tags as a normal frontmatter property.", this.plugin.settings.includeTagsInFrontmatter, async (value) =>
 			this.plugin.updateSettings({ includeTagsInFrontmatter: value }),
 		);
 		this.addToggleSetting(containerEl, "Include inline Obsidian tags", "Render Pocket tags as inline `#pocket/...` tags near the top of each note.", this.plugin.settings.includeInlineObsidianTags, async (value) =>
@@ -393,7 +393,7 @@ export class PocketSyncSettingTab extends PluginSettingTab {
 		this.addToggleSetting(containerEl, "Include extended frontmatter metadata", "Store Pocket timestamps, status, language, and summary update time.", this.plugin.settings.includeExtendedFrontmatterMetadata, async (value) =>
 			this.plugin.updateSettings({ includeExtendedFrontmatterMetadata: value }),
 		);
-		this.addToggleSetting(containerEl, "Include source field in Pocket frontmatter", "Add a `source` property alongside the other pocket properties.", this.plugin.settings.addSourceFrontmatterField, async (value) =>
+		this.addToggleSetting(containerEl, "Include source field in Pocket frontmatter", "Add a `source` property alongside the other Pocket properties.", this.plugin.settings.addSourceFrontmatterField, async (value) =>
 			this.plugin.updateSettings({ addSourceFrontmatterField: value }),
 		);
 		this.addToggleSetting(containerEl, "Include action item due date", "Show due dates beside action items when Pocket provides them.", this.plugin.settings.includeActionItemDueDate, async (value) =>
@@ -424,7 +424,7 @@ export class PocketSyncSettingTab extends PluginSettingTab {
 		this.addSectionHeading(containerEl, "Write behavior");
 		new Setting(containerEl)
 			.setName("Note management mode")
-			.setDesc("Managed block mode preserves manual note content outside the pocket sync block.")
+			.setDesc("Managed block mode preserves manual note content outside the sync block.")
 			.addDropdown((dropdown) =>
 				dropdown
 					.addOption("managed-block", "Managed sync block only")
@@ -441,7 +441,7 @@ export class PocketSyncSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Deleted recording behavior")
-			.setDesc("Archive notes when pocket returns 404 for tracked recordings in the current sync window.")
+			.setDesc("Archive notes when Pocket returns 404 for tracked recordings in the current sync window.")
 			.addDropdown((dropdown) =>
 				dropdown
 					.addOption("archive", "Archive missing recordings")

@@ -22,6 +22,19 @@ export default tseslint.config(
 		},
 	},
 	...obsidianmd.configs.recommended,
+	{
+		plugins: {
+			obsidianmd,
+		},
+		rules: {
+			"obsidianmd/ui/sentence-case": [
+				"warn",
+				{
+					brands: ["Pocket"],
+				},
+			],
+		},
+	},
 	globalIgnores([
 		"node_modules",
 		"dist",
