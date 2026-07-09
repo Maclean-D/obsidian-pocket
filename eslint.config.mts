@@ -30,7 +30,7 @@ export default tseslint.config(
 			"obsidianmd/ui/sentence-case": [
 				"warn",
 				{
-					brands: ["Pocket"],
+					brands: ["Pocket", "Obsidian"],
 				},
 			],
 		},

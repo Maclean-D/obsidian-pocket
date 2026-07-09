@@ -34,12 +34,30 @@ export function truncate(input: string, maxLength: number): string {
 	return `${input.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`;
 }
 
-export function toObsidianTag(tag: string): string {
-	return `#pocket/${tag
+/**
+ * Canonical Obsidian tag normalization shared by inline and frontmatter output.
+ * Lowercases, replaces unsupported characters with dashes, collapses repeats,
+ * and trims leading/trailing dashes. Returns the bare tag without a `#` prefix.
+ * May return an empty string when the input has no usable characters (e.g. `!!!`).
+ */
+export function sanitizeTag(tag: string): string {
+	return tag
 		.toLowerCase()
-		.replace(/[^a-z0-9/-]+/g, "-")
+		.replace(/[^a-z0-9/_-]+/g, "-")
 		.replace(/-+/g, "-")
-		.replace(/^-|-$/g, "")}`;
+		.replace(/^[-/]+|[-/]+$/g, "");
+}
+
+export function toObsidianTag(tag: string): string {
+	return `#pocket/${sanitizeTag(tag)}`;
+}
+
+export function toCustomObsidianTag(tag: string): string {
+	return `#${sanitizeTag(tag)}`;
+}
+
+export function escapeRegExp(value: string): string {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 export function quoteYamlString(value: string): string {

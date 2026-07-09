@@ -72,6 +72,11 @@ export interface PocketSyncSettings {
 	includeActionItemStatus: boolean;
 	hideCompletedActionItems: boolean;
 	addSourceFrontmatterField: boolean;
+	additionalTags: string;
+	additionalConversationTags: string;
+	additionalInsightTags: string;
+	additionalTagsInFrontmatter: boolean;
+	additionalTagsInline: boolean;
 }
 
 export interface PocketTag {
@@ -302,6 +307,11 @@ export const DEFAULT_SETTINGS: PocketSyncSettings = {
 	includeActionItemStatus: true,
 	hideCompletedActionItems: false,
 	addSourceFrontmatterField: true,
+	additionalTags: "",
+	additionalConversationTags: "",
+	additionalInsightTags: "",
+	additionalTagsInFrontmatter: true,
+	additionalTagsInline: false,
 };
 
 export const DEFAULT_SYNC_STATE: PocketSyncState = {

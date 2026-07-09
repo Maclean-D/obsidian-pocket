@@ -28,6 +28,9 @@ export function sanitizeSettings(settings: Partial<PocketSyncSettings>): PocketS
 			settings.conversationFolderTemplate?.trim() || DEFAULT_SETTINGS.conversationFolderTemplate,
 		insightFilenameTemplate:
 			settings.insightFilenameTemplate?.trim() || DEFAULT_SETTINGS.insightFilenameTemplate,
+		additionalTags: settings.additionalTags?.trim() ?? DEFAULT_SETTINGS.additionalTags,
+		additionalConversationTags: settings.additionalConversationTags?.trim() ?? DEFAULT_SETTINGS.additionalConversationTags,
+		additionalInsightTags: settings.additionalInsightTags?.trim() ?? DEFAULT_SETTINGS.additionalInsightTags,
 	};
 }
 
@@ -405,6 +408,61 @@ export class PocketSyncSettingTab extends PluginSettingTab {
 		);
 		this.addToggleSetting(containerEl, "Hide completed action items", "Drop Pocket action items that are already completed.", this.plugin.settings.hideCompletedActionItems, async (value) =>
 			this.plugin.updateSettings({ hideCompletedActionItems: value }),
+		);
+
+		this.addSectionHeading(containerEl, "Additional Obsidian tags");
+		const additionalTagsHint = containerEl.createEl("p");
+		additionalTagsHint.appendText(
+			"Tags are normalized to valid Obsidian tags (lowercased, spaces become dashes). They only appear in notes once you enable a destination below — frontmatter, inline, or both. ",
+		);
+		additionalTagsHint.appendText("Frontmatter output also requires the “Include frontmatter” option to be turned on.");
+		new Setting(containerEl)
+			.setName("Tags for all notes")
+			.setDesc("Comma-separated Obsidian tags added to every synced note (conversations and insights).")
+			.addText((text) => {
+				text.setPlaceholder("Pocket, meeting");
+				text.setValue(this.plugin.settings.additionalTags);
+				text.onChange(async (value) => {
+					await this.plugin.updateSettings({ additionalTags: value });
+				});
+			});
+
+		new Setting(containerEl)
+			.setName("Tags for conversation notes")
+			.setDesc("Comma-separated Obsidian tags added only to conversation notes and their artifacts.")
+			.addText((text) => {
+				text.setPlaceholder("Conversation");
+				text.setValue(this.plugin.settings.additionalConversationTags);
+				text.onChange(async (value) => {
+					await this.plugin.updateSettings({ additionalConversationTags: value });
+				});
+			});
+
+		new Setting(containerEl)
+			.setName("Tags for insight notes")
+			.setDesc("Comma-separated Obsidian tags added only to insight notes.")
+			.addText((text) => {
+				text.setPlaceholder("Insight");
+				text.setValue(this.plugin.settings.additionalInsightTags);
+				text.onChange(async (value) => {
+					await this.plugin.updateSettings({ additionalInsightTags: value });
+				});
+			});
+
+		this.addToggleSetting(
+			containerEl,
+			"Write additional tags to frontmatter",
+			"Merge additional tags into the standard Obsidian tags: property. Tags you add by hand are preserved. Requires the “Include frontmatter” option above.",
+			this.plugin.settings.additionalTagsInFrontmatter,
+			async (value) => this.plugin.updateSettings({ additionalTagsInFrontmatter: value }),
+		);
+
+		this.addToggleSetting(
+			containerEl,
+			"Write additional tags inline",
+			"Render additional tags as inline #tag entries near the top of each note.",
+			this.plugin.settings.additionalTagsInline,
+			async (value) => this.plugin.updateSettings({ additionalTagsInline: value }),
 		);
 
 	}
