@@ -7,6 +7,10 @@ import { DEFAULT_SETTINGS } from "./types";
 import { formatDisplayDateTime } from "./utils/date";
 import { normalizeFolderPath } from "./utils/text";
 
+function asSettingChoice<T extends string>(value: string): T {
+	return value as T;
+}
+
 export function sanitizeSettings(settings: Partial<PocketSyncSettings>): PocketSyncSettings {
 	return {
 		...DEFAULT_SETTINGS,
@@ -315,8 +319,10 @@ export class PocketSyncSettingTab extends PluginSettingTab {
 					.addOption("append-id", "Add suffix")
 					.addOption("frontmatter", "Keep tracked note path")
 					.setValue(this.plugin.settings.duplicateFilenamePolicy)
-					.onChange(async (value: PocketSyncSettings["duplicateFilenamePolicy"]) => {
-						await this.plugin.updateSettings({ duplicateFilenamePolicy: value });
+					.onChange(async (value) => {
+						await this.plugin.updateSettings({
+							duplicateFilenamePolicy: asSettingChoice<PocketSyncSettings["duplicateFilenamePolicy"]>(value),
+						});
 					}),
 			);
 
@@ -337,8 +343,8 @@ export class PocketSyncSettingTab extends PluginSettingTab {
 					.addOption("per-recording", "One note per recording")
 					.addOption("per-day", "Roll up to one note per day")
 					.setValue(this.plugin.settings.insightMode)
-					.onChange(async (value: InsightMode) => {
-						await this.plugin.updateSettings({ insightMode: value });
+					.onChange(async (value) => {
+						await this.plugin.updateSettings({ insightMode: asSettingChoice<InsightMode>(value) });
 					}),
 			);
 
@@ -350,8 +356,10 @@ export class PocketSyncSettingTab extends PluginSettingTab {
 					.addOption("recording-date", "Recording date")
 					.addOption("summary-date", "Summary date")
 					.setValue(this.plugin.settings.insightDateSource)
-					.onChange(async (value: PocketSyncSettings["insightDateSource"]) => {
-						await this.plugin.updateSettings({ insightDateSource: value });
+					.onChange(async (value) => {
+						await this.plugin.updateSettings({
+							insightDateSource: asSettingChoice<PocketSyncSettings["insightDateSource"]>(value),
+						});
 					}),
 			);
 	}
@@ -419,8 +427,10 @@ export class PocketSyncSettingTab extends PluginSettingTab {
 					.addOption("managed-block", "Managed sync block only")
 					.addOption("entire-note", "Entire note managed")
 					.setValue(this.plugin.settings.noteManagementMode)
-					.onChange(async (value: PocketSyncSettings["noteManagementMode"]) => {
-						await this.plugin.updateSettings({ noteManagementMode: value });
+					.onChange(async (value) => {
+						await this.plugin.updateSettings({
+							noteManagementMode: asSettingChoice<PocketSyncSettings["noteManagementMode"]>(value),
+						});
 					}),
 			);
 
@@ -436,8 +446,10 @@ export class PocketSyncSettingTab extends PluginSettingTab {
 					.addOption("archive", "Archive missing recordings")
 					.addOption("leave", "Leave notes untouched")
 					.setValue(this.plugin.settings.deletedRecordingBehavior)
-					.onChange(async (value: PocketSyncSettings["deletedRecordingBehavior"]) => {
-						await this.plugin.updateSettings({ deletedRecordingBehavior: value });
+					.onChange(async (value) => {
+						await this.plugin.updateSettings({
+							deletedRecordingBehavior: asSettingChoice<PocketSyncSettings["deletedRecordingBehavior"]>(value),
+						});
 					}),
 			);
 
