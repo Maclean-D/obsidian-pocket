@@ -2,7 +2,7 @@ import { App, ButtonComponent, PluginSettingTab, Setting } from "obsidian";
 
 import { POCKET_API_KEYS_URL, SUPPORTED_FILENAME_TOKENS } from "./constants";
 import type PocketSyncPlugin from "./main";
-import type { InsightMode, PocketSyncSettings } from "./types";
+import type { ConversationOutputFormat, InsightMode, PocketSyncSettings } from "./types";
 import { DEFAULT_SETTINGS } from "./types";
 import { formatDisplayDateTime } from "./utils/date";
 import { normalizeFolderPath } from "./utils/text";
@@ -15,6 +15,9 @@ export function sanitizeSettings(settings: Partial<PocketSyncSettings>): PocketS
 		includeTags: settings.includeTags?.trim() ?? DEFAULT_SETTINGS.includeTags,
 		excludeTags: settings.excludeTags?.trim() ?? DEFAULT_SETTINGS.excludeTags,
 		insightsTag: settings.insightsTag?.trim() || DEFAULT_SETTINGS.insightsTag,
+		conversationOutputFormat: isConversationOutputFormat(settings.conversationOutputFormat)
+			? settings.conversationOutputFormat
+			: DEFAULT_SETTINGS.conversationOutputFormat,
 		maxDaysPerSyncRun: clampNumber(settings.maxDaysPerSyncRun, 1, 365, DEFAULT_SETTINGS.maxDaysPerSyncRun),
 		syncIntervalMinutes: clampNumber(settings.syncIntervalMinutes, 5, 1440, DEFAULT_SETTINGS.syncIntervalMinutes),
 		baseFolder: normalizeFolderPath(settings.baseFolder ?? DEFAULT_SETTINGS.baseFolder) || DEFAULT_SETTINGS.baseFolder,
@@ -244,6 +247,19 @@ export class PocketSyncSettingTab extends PluginSettingTab {
 	private renderOrganizationSection(containerEl: HTMLElement): void {
 		this.addSectionHeading(containerEl, "Note organization");
 		new Setting(containerEl)
+			.setName("Conversation output format")
+			.setDesc("Choose the format for newly imported conversations. Existing tracked conversations keep their format; single notes can be moved or renamed within the vault.")
+			.addDropdown((dropdown) =>
+				dropdown
+					.addOption("separate-files", "Separate files")
+					.addOption("single-note", "Single note")
+					.setValue(this.plugin.settings.conversationOutputFormat)
+					.onChange(async (value: ConversationOutputFormat) => {
+						await this.plugin.updateSettings({ conversationOutputFormat: value });
+					}),
+			);
+
+		new Setting(containerEl)
 			.setName("Base Pocket folder")
 			.setDesc("Root folder for everything this plugin creates.")
 			.addText((text) => {
@@ -278,7 +294,7 @@ export class PocketSyncSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Group by year and month")
-			.setDesc("Add `YYYY/MM` subfolders beneath the conversation and insight folders. Leave off for closest OneDrive parity.")
+			.setDesc("Add `YYYY/MM` subfolders for separate-file conversations and insights. Single notes remain flat.")
 			.addToggle((toggle) =>
 				toggle.setValue(this.plugin.settings.groupByYearMonth).onChange(async (value) => {
 					await this.plugin.updateSettings({ groupByYearMonth: value });
@@ -286,8 +302,8 @@ export class PocketSyncSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName("Conversation folder template")
-			.setDesc(`Names the folder that contains transcript.md, summary.md, action-items.md, and mindmap.md. Supported tokens: ${SUPPORTED_FILENAME_TOKENS.join(", ")}`)
+			.setName("Conversation name template")
+			.setDesc(`Names separate-file conversation folders and initial single-note files. Supported tokens: ${SUPPORTED_FILENAME_TOKENS.join(", ")}`)
 			.addText((text) => {
 				text.setPlaceholder("{{title}}");
 				text.setValue(this.plugin.settings.conversationFolderTemplate);
@@ -358,28 +374,28 @@ export class PocketSyncSettingTab extends PluginSettingTab {
 
 	private renderContentSection(containerEl: HTMLElement): void {
 		this.addSectionHeading(containerEl, "Note content");
-		this.addToggleSetting(containerEl, "Include frontmatter", "Store Pocket metadata as Obsidian properties. Turn off for the closest raw Drive-style file bodies.", this.plugin.settings.includeFrontmatter, async (value) =>
+		this.addToggleSetting(containerEl, "Include frontmatter", "Store Pocket metadata as Obsidian properties. Single conversation notes always retain recording_id for safe tracking.", this.plugin.settings.includeFrontmatter, async (value) =>
 			this.plugin.updateSettings({ includeFrontmatter: value }),
 		);
 		this.addToggleSetting(containerEl, "Include Pocket metadata section", "Add a Markdown metadata section to insight notes.", this.plugin.settings.includeMetadataSection, async (value) =>
 			this.plugin.updateSettings({ includeMetadataSection: value }),
 		);
-		this.addToggleSetting(containerEl, "Write summary.md", "Write Pocket's summary markdown into each conversation folder and insight note.", this.plugin.settings.includeSummaryMarkdown, async (value) =>
+		this.addToggleSetting(containerEl, "Include summary", "Include Pocket's summary markdown in conversation and insight output.", this.plugin.settings.includeSummaryMarkdown, async (value) =>
 			this.plugin.updateSettings({ includeSummaryMarkdown: value }),
 		);
 		this.addToggleSetting(containerEl, "Include bullet highlights", "Append Pocket summary bullet points to summary output when available.", this.plugin.settings.includeBulletHighlights, async (value) =>
 			this.plugin.updateSettings({ includeBulletHighlights: value }),
 		);
-		this.addToggleSetting(containerEl, "Write action-items.md", "Write Pocket action items into each conversation folder.", this.plugin.settings.includeActionItems, async (value) =>
+		this.addToggleSetting(containerEl, "Include action items", "Include Pocket action items in conversation output.", this.plugin.settings.includeActionItems, async (value) =>
 			this.plugin.updateSettings({ includeActionItems: value }),
 		);
-		this.addToggleSetting(containerEl, "Write mindmap.md", "Write Pocket mind map markdown into each conversation folder when available.", this.plugin.settings.includeMindMap, async (value) =>
+		this.addToggleSetting(containerEl, "Include mind map", "Include Pocket mind map markdown in conversation output when available.", this.plugin.settings.includeMindMap, async (value) =>
 			this.plugin.updateSettings({ includeMindMap: value }),
 		);
 		this.addToggleSetting(containerEl, "Render action items as checklist", "Use Markdown checkboxes instead of plain bullets.", this.plugin.settings.renderActionItemsAsChecklist, async (value) =>
 			this.plugin.updateSettings({ renderActionItemsAsChecklist: value }),
 		);
-		this.addToggleSetting(containerEl, "Write transcript.md", "Write transcript content into each conversation folder when Pocket provides it.", this.plugin.settings.includeTranscript, async (value) =>
+		this.addToggleSetting(containerEl, "Include transcript", "Include transcript content in conversation output when Pocket provides it.", this.plugin.settings.includeTranscript, async (value) =>
 			this.plugin.updateSettings({ includeTranscript: value }),
 		);
 		this.addToggleSetting(containerEl, "Include transcript timestamps", "Prefix transcript segments with Pocket timestamps.", this.plugin.settings.includeTranscriptTimestamps, async (value) =>
@@ -496,6 +512,10 @@ export class PocketSyncSettingTab extends PluginSettingTab {
 	private addSectionHeading(containerEl: HTMLElement, heading: string): void {
 		new Setting(containerEl).setName(heading).setHeading();
 	}
+}
+
+function isConversationOutputFormat(value: unknown): value is ConversationOutputFormat {
+	return value === "separate-files" || value === "single-note";
 }
 
 function clampNumber(value: number | undefined, min: number, max: number, fallback: number): number {

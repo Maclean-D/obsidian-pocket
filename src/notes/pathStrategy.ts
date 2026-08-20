@@ -1,4 +1,4 @@
-import { normalizePath, Vault } from "obsidian";
+import { App, normalizePath, TFile, Vault } from "obsidian";
 
 import { DEFAULT_ARCHIVE_FOLDER } from "../constants";
 import type {
@@ -18,6 +18,52 @@ export const CONVERSATION_ARTIFACT_FILENAMES: Record<ConversationArtifactKind, s
 	"action-items": "action-items.md",
 	mindmap: "mindmap.md",
 };
+
+export interface NewConversationSingleNotePath {
+	targetPath: string;
+	previousPath: null;
+}
+
+export async function resolveNewConversationSingleNotePath(
+	app: App,
+	recording: NormalizedPocketRecording,
+	settings: PocketSyncSettings,
+	excludedPaths: ReadonlySet<string> = new Set(),
+): Promise<NewConversationSingleNotePath> {
+	const folderPath = normalizeFolderPath(`${settings.baseFolder}/${settings.conversationFolder}`);
+	const noteDate = formatLocalDate(recording.recordingAt);
+	const filenameStem = truncate(
+		buildTemplateValue(recording, settings, settings.conversationFolderTemplate, noteDate, recording.title),
+		120,
+	);
+	const suffixes = buildSingleNoteCollisionSuffixes(recording.id);
+	const candidatePaths = [
+		normalizePath(`${folderPath}/${filenameStem}.md`),
+		...suffixes.map((suffix) => buildSuffixedMarkdownPath(folderPath, filenameStem, suffix)),
+	];
+
+	for (const candidatePath of candidatePaths) {
+		if (excludedPaths.has(candidatePath)) {
+			continue;
+		}
+		const availability = await inspectSingleNoteCandidate(app, candidatePath, recording.id);
+		if (availability !== "occupied-by-other") {
+			return { targetPath: candidatePath, previousPath: null };
+		}
+	}
+
+	const fullIdSuffix = suffixes[suffixes.length - 1] ?? "pocket-recording";
+	for (let sequence = 2; ; sequence += 1) {
+		const candidatePath = buildSuffixedMarkdownPath(folderPath, filenameStem, `${fullIdSuffix} ${sequence}`);
+		if (excludedPaths.has(candidatePath)) {
+			continue;
+		}
+		const availability = await inspectSingleNoteCandidate(app, candidatePath, recording.id);
+		if (availability !== "occupied-by-other") {
+			return { targetPath: candidatePath, previousPath: null };
+		}
+	}
+}
 
 export function buildConversationArtifactPath(
 	vault: Vault,
@@ -184,6 +230,38 @@ function buildTemplateValue(
 	return sanitizeFileComponent(resolvedTemplate);
 }
 
+function buildSingleNoteCollisionSuffixes(recordingId: string): string[] {
+	const safeRecordingId = truncate(sanitizeFileComponent(recordingId, "pocket-recording"), 80);
+	return Array.from(new Set([safeRecordingId.slice(0, 8), safeRecordingId])).filter(Boolean);
+}
+
+function buildSuffixedMarkdownPath(folderPath: string, filenameStem: string, suffix: string): string {
+	const safeSuffix = sanitizeFileComponent(suffix, "pocket-recording");
+	const availableStemLength = Math.max(1, 120 - safeSuffix.length - 1);
+	const fittedStem = truncate(filenameStem, availableStemLength);
+	return normalizePath(`${folderPath}/${fittedStem} ${safeSuffix}.md`);
+}
+
+async function inspectSingleNoteCandidate(
+	app: App,
+	candidatePath: string,
+	recordingId: string,
+): Promise<"available" | "owned" | "occupied-by-other"> {
+	const abstractFile = app.vault.getAbstractFileByPath(candidatePath);
+	if (!abstractFile) {
+		return await app.vault.adapter.exists(candidatePath) ? "occupied-by-other" : "available";
+	}
+
+	if (!(abstractFile instanceof TFile) || abstractFile.extension !== "md") {
+		return "occupied-by-other";
+	}
+
+	const frontmatter = app.metadataCache.getFileCache(abstractFile)?.frontmatter;
+	return frontmatter?.recording_id === recordingId
+		? "owned"
+		: "occupied-by-other";
+}
+
 function resolveTrackedOrUniquePath(
 	vault: Vault,
 	desiredPath: string,
@@ -238,4 +316,3 @@ function getRecordingDatePrefix(recording: NormalizedPocketRecording): string {
 
 	return formatLocalDate(recording.recordingAt);
 }
-

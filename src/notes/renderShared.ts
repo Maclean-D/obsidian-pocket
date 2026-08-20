@@ -87,6 +87,7 @@ export function buildSummarySection(
 export function buildSummaryMarkdownBody(
 	recording: NormalizedPocketRecording,
 	settings: Pick<PocketSyncSettings, "includeSummaryMarkdown" | "includeBulletHighlights">,
+	options: { highlightsHeadingLevel?: 1 | 3 } = {},
 ): string {
 	const summary = recording.summary;
 	if (!summary) {
@@ -99,7 +100,8 @@ export function buildSummaryMarkdownBody(
 	}
 
 	if (settings.includeBulletHighlights && summary.bulletPoints.length > 0) {
-		sections.push(`# Highlights\n\n${summary.bulletPoints.map((point) => `- ${point}`).join("\n")}`);
+		const heading = "#".repeat(options.highlightsHeadingLevel ?? 1);
+		sections.push(`${heading} Highlights\n\n${summary.bulletPoints.map((point) => `- ${point}`).join("\n")}`);
 	}
 
 	return sections.join("\n\n");
@@ -428,4 +430,3 @@ function buildActionItemSuffix(
 
 	return metadata.length > 0 ? ` (${metadata.join(", ")})` : "";
 }
-

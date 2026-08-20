@@ -1,7 +1,16 @@
 import type PocketSyncPlugin from "../main";
 import type { PocketTrackedRecord, SyncReport } from "../types";
 
+interface TrackedPathRedirect {
+	recordId: string;
+	oldPath: string;
+	newPath: string;
+	isFolder: boolean;
+}
+
 export class SyncStateStore {
+	private readonly pathRedirects: TrackedPathRedirect[] = [];
+
 	constructor(private readonly plugin: PocketSyncPlugin) {}
 
 	get state() {
@@ -58,11 +67,37 @@ export class SyncStateStore {
 
 	upsertRecords(records: PocketTrackedRecord[]): void {
 		for (const record of records) {
-			this.state.records[record.id] = record;
+			this.state.records[record.id] = this.applyPathRedirects(record);
 		}
 	}
 
-	markArchived(recordIds: string[], archivedAt: string, archivePath: string, artifactPaths: string[] = [archivePath]): void {
+	replaceTrackedPath(oldPath: string, newPath: string, isFolder: boolean): boolean {
+		let changed = false;
+		for (const record of this.getTrackedRecords()) {
+			if (this.replaceTrackedPathForRecord(record.id, oldPath, newPath, isFolder)) {
+				changed = true;
+			}
+		}
+		return changed;
+	}
+
+	replaceTrackedPathForRecord(recordId: string, oldPath: string, newPath: string, isFolder: boolean): boolean {
+		const record = this.state.records[recordId];
+		if (!record || !replaceRecordPaths(record, oldPath, newPath, isFolder)) {
+			return false;
+		}
+
+		this.pathRedirects.push({ recordId, oldPath, newPath, isFolder });
+		return true;
+	}
+
+	markArchived(
+		recordIds: string[],
+		archivedAt: string,
+		archivePath: string,
+		artifactPaths: string[] = [archivePath],
+		sourcePaths: string[] = [],
+	): void {
 		for (const recordId of recordIds) {
 			const existing = this.state.records[recordId];
 			if (!existing) {
@@ -70,8 +105,21 @@ export class SyncStateStore {
 			}
 
 			existing.archivedAt = archivedAt;
+			if (artifactPaths.length === 0) {
+				continue;
+			}
 			existing.notePath = archivePath;
 			existing.artifactPaths = artifactPaths;
+			if (existing.kind === "conversation" && existing.activeOutputFormat === "single-note") {
+				existing.singleNotePath = archivePath;
+			} else if (existing.kind === "conversation" && existing.separateFilePaths) {
+				for (const [artifactKind, path] of Object.entries(existing.separateFilePaths)) {
+					const pathIndex = sourcePaths.indexOf(path);
+					if (pathIndex >= 0 && artifactPaths[pathIndex]) {
+						existing.separateFilePaths[artifactKind as keyof typeof existing.separateFilePaths] = artifactPaths[pathIndex];
+					}
+				}
+			}
 		}
 	}
 
@@ -96,5 +144,46 @@ export class SyncStateStore {
 	async persist(): Promise<void> {
 		await this.plugin.savePluginData();
 	}
+
+	private applyPathRedirects(record: PocketTrackedRecord): PocketTrackedRecord {
+		for (const redirect of this.pathRedirects) {
+			if (redirect.recordId === record.id) {
+				replaceRecordPaths(record, redirect.oldPath, redirect.newPath, redirect.isFolder);
+			}
+		}
+		return record;
+	}
 }
 
+function replaceRecordPaths(record: PocketTrackedRecord, oldPath: string, newPath: string, isFolder: boolean): boolean {
+	let changed = false;
+	const replace = (path: string): string => {
+		const nextPath = replacePath(path, oldPath, newPath, isFolder);
+		changed = changed || nextPath !== path;
+		return nextPath;
+	};
+
+	record.notePath = replace(record.notePath);
+	record.artifactPaths = record.artifactPaths.map(replace);
+	if (record.singleNotePath) {
+		record.singleNotePath = replace(record.singleNotePath);
+	}
+	if (record.separateFilePaths) {
+		for (const [artifactKind, path] of Object.entries(record.separateFilePaths)) {
+			if (path) {
+				record.separateFilePaths[artifactKind as keyof typeof record.separateFilePaths] = replace(path);
+			}
+		}
+	}
+	return changed;
+}
+
+function replacePath(path: string, oldPath: string, newPath: string, isFolder: boolean): string {
+	if (path === oldPath) {
+		return newPath;
+	}
+	if (isFolder && path.startsWith(`${oldPath}/`)) {
+		return `${newPath}${path.slice(oldPath.length)}`;
+	}
+	return path;
+}
