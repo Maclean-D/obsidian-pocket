@@ -1,24 +1,29 @@
 import { App } from "obsidian";
 
 import { AUTO_SYNC_FAILURE_THRESHOLD, DEFAULT_FIRST_SYNC_DATE, MAX_PAGE_SIZE, SYNC_SAFETY_LOOKBACK_DAYS } from "../constants";
-import { archivePocketNote, upsertPocketNote } from "../notes/upsertNote";
-import { buildArchivePath, buildConversationArtifactPath, buildInsightGroupKey, buildInsightPath, findTrackedArtifactPath } from "../notes/pathStrategy";
-import { renderConversationArtifactBody, renderConversationArtifactNote } from "../notes/renderConversation";
+import { archivePocketNote, PocketNoteTargetConflictError, upsertPocketNote } from "../notes/upsertNote";
+import { buildArchivePath, buildConversationArtifactPath, buildInsightGroupKey, buildInsightPath, findTrackedArtifactPath, resolveNewConversationSingleNotePath } from "../notes/pathStrategy";
+import { renderConversationArtifactBody, renderConversationArtifactNote, renderConversationNote } from "../notes/renderConversation";
 import { renderInsightNote } from "../notes/renderInsight";
 import { PocketApi, PocketApiError } from "../pocket/api";
 import { isInsightRecording, matchesTagFilters, normalizeRecordingDetail, normalizeRecordingListItem } from "../pocket/mappers";
 import type {
 	ConversationArtifactKind,
+	ConversationOutputFormat,
+	ConversationSeparateFilePaths,
 	NormalizedPocketRecording,
 	PocketRecordingListItem,
 	PocketSyncSettings,
 	PocketTrackedRecord,
+	RenderedPocketNote,
 	SyncNoteSpec,
 	SyncOptions,
 	SyncReport,
 } from "../types";
 import { subtractDays, toPocketDateString } from "../utils/date";
 import { SyncStateStore } from "./stateStore";
+import { buildSingleNoteRecoveryIndex, type SingleNoteRecoveryIndex } from "./singleNoteRecovery";
+import { getActiveTrackedPaths } from "./trackingModel";
 
 interface SyncWindow {
 	startDate: string;
@@ -29,6 +34,9 @@ interface PendingTrackedRecord {
 	recording: NormalizedPocketRecording;
 	groupKey: string;
 	artifactPaths: string[];
+	activeOutputFormat?: ConversationOutputFormat;
+	singleNotePath?: string | null;
+	separateFilePaths?: ConversationSeparateFilePaths;
 }
 
 const CONVERSATION_ARTIFACT_ORDER: ConversationArtifactKind[] = ["transcript", "summary", "action-items", "mindmap"];
@@ -135,6 +143,7 @@ export class SyncService {
 			const seenIds = new Set<string>();
 			const recordsToPersist: PocketTrackedRecord[] = [];
 			const hydratedRecordings: NormalizedPocketRecording[] = [];
+			let singleNoteRecoveryIndex: SingleNoteRecoveryIndex | null = null;
 
 			let detailFetchCount = 0;
 			for (const listItem of listItems) {
@@ -147,7 +156,38 @@ export class SyncService {
 				}
 
 				seenIds.add(listItem.id);
-				const trackedRecord = this.stateStore.getRecord(listItem.id);
+				let trackedRecord = this.stateStore.getRecord(listItem.id);
+				if (trackedRecord?.kind === "conversation" && trackedRecord.activeOutputFormat === "single-note") {
+					const singleNotePath = trackedRecord.singleNotePath;
+					if (!singleNotePath || !this.app.vault.getAbstractFileByPath(singleNotePath)) {
+						if (singleNotePath) {
+							singleNoteRecoveryIndex ??= buildSingleNoteRecoveryIndex(this.app);
+							const matchingPaths = singleNoteRecoveryIndex.get(trackedRecord.id) ?? [];
+							if (matchingPaths.length === 1) {
+								if (this.stateStore.replaceTrackedPathForRecord(trackedRecord.id, singleNotePath, matchingPaths[0]!, false)) {
+									await this.stateStore.persist();
+								}
+								trackedRecord = this.stateStore.getRecord(listItem.id);
+							}
+						}
+
+						const currentTrackedRecord = trackedRecord;
+						const recoveredPath = currentTrackedRecord?.singleNotePath;
+						if (!currentTrackedRecord || !recoveredPath || !this.app.vault.getAbstractFileByPath(recoveredPath)) {
+							if (currentTrackedRecord) {
+								recordsToPersist.push({ ...currentTrackedRecord, lastSeenAt: syncStartedAt });
+							}
+							report.skipped += 1;
+							const matchingCount = singleNoteRecoveryIndex?.get(listItem.id)?.length ?? 0;
+							report.warnings.push(
+								matchingCount > 1
+									? `Skipped "${listItem.title}" because ${matchingCount} notes have its recording_id; Pocket Sync cannot safely recover the tracked Single note.`
+									: `Skipped "${listItem.title}" because its tracked Single note is missing and no note with its recording_id was found. Pocket Sync will not recreate it automatically.`,
+							);
+							continue;
+						}
+					}
+				}
 
 				if (!this.shouldFetchDetails(listItem, trackedRecord, settings, options.forceFullScan ?? false)) {
 					if (trackedRecord) {
@@ -196,7 +236,7 @@ export class SyncService {
 			}
 
 			await this.updateProgress("Rendering Obsidian notes.");
-			const noteSpecs = this.buildNoteSpecs(hydratedRecordings, settings);
+			const noteSpecs = await this.buildNoteSpecs(hydratedRecordings, settings);
 			const pendingTrackedRecords = new Map<string, PendingTrackedRecord>();
 			const processedIds = new Set<string>();
 			for (const noteSpec of noteSpecs) {
@@ -205,18 +245,23 @@ export class SyncService {
 					continue;
 				}
 
-				const rendered = noteSpec.kind === "conversation"
-					? renderConversationArtifactNote(primaryRecording, settings, syncStartedAt, noteSpec.artifactKind as ConversationArtifactKind)
-					: renderInsightNote(noteSpec.recordings, settings, syncStartedAt);
-				const result = await upsertPocketNote({
-					app: this.app,
-					targetPath: noteSpec.targetPath,
-					previousPath: noteSpec.previousPath,
-					rendered,
-					noteManagementMode: settings.noteManagementMode,
-					includeFrontmatter: settings.includeFrontmatter,
-					dryRun,
-				});
+				const isSingleNote = noteSpec.artifactKind === "single-note";
+				const rendered = isSingleNote
+					? renderConversationNote(primaryRecording, settings, syncStartedAt)
+					: noteSpec.kind === "conversation"
+						? renderConversationArtifactNote(primaryRecording, settings, syncStartedAt, noteSpec.artifactKind as ConversationArtifactKind)
+						: renderInsightNote(noteSpec.recordings, settings, syncStartedAt);
+				let result: Awaited<ReturnType<typeof upsertPocketNote>>;
+				if (isSingleNote) {
+					try {
+						result = await this.writeNoteSpec(noteSpec, rendered, primaryRecording, settings, dryRun);
+					} catch (error) {
+						report.errors.push(`Failed to write Pocket note for "${primaryRecording.title}": ${this.describeError(error)}`);
+						continue;
+					}
+				} else {
+					result = await this.writeNoteSpec(noteSpec, rendered, primaryRecording, settings, dryRun);
+				}
 
 				if (result.action === "created") {
 					report.created += 1;
@@ -226,7 +271,9 @@ export class SyncService {
 					report.skipped += 1;
 				}
 
-				this.trackRenderedSpec(pendingTrackedRecords, noteSpec, result.finalPath);
+				if (!dryRun) {
+					this.trackRenderedSpec(pendingTrackedRecords, noteSpec, result.finalPath);
+				}
 				for (const recording of noteSpec.recordings) {
 					processedIds.add(recording.id);
 				}
@@ -238,7 +285,8 @@ export class SyncService {
 
 			for (const [recordingId, pendingRecord] of pendingTrackedRecords.entries()) {
 				const artifactPaths = Array.from(new Set(pendingRecord.artifactPaths));
-				recordsToPersist.push({
+				const existingRecord = this.stateStore.getRecord(recordingId);
+				const trackedRecord: PocketTrackedRecord = {
 					id: recordingId,
 					kind: pendingRecord.recording.kind,
 					notePath: artifactPaths[0] ?? "",
@@ -248,7 +296,13 @@ export class SyncService {
 					lastSeenAt: syncStartedAt,
 					lastSourceUpdatedAt: pendingRecord.recording.updatedAt,
 					archivedAt: null,
-				});
+				};
+				if (pendingRecord.recording.kind === "conversation") {
+					trackedRecord.activeOutputFormat = pendingRecord.activeOutputFormat ?? "separate-files";
+					trackedRecord.singleNotePath = pendingRecord.singleNotePath ?? existingRecord?.singleNotePath ?? null;
+					trackedRecord.separateFilePaths = pendingRecord.separateFilePaths ?? existingRecord?.separateFilePaths ?? {};
+				}
+				recordsToPersist.push(trackedRecord);
 			}
 
 			if (settings.deletedRecordingBehavior === "archive") {
@@ -348,7 +402,7 @@ export class SyncService {
 		const windowStart = Date.parse(`${params.syncWindow.startDate}T00:00:00.000Z`);
 		const archivedPaths = new Set<string>();
 		const archivePathBySourcePath = new Map<string, string>();
-		const recordsToMarkArchived: Array<{ record: PocketTrackedRecord; archivePaths: string[] }> = [];
+		const recordsToMarkArchived: Array<{ record: PocketTrackedRecord; sourcePaths: string[]; archivePaths: string[] }> = [];
 
 		for (const trackedRecord of this.stateStore.getTrackedRecords()) {
 			if (params.seenIds.has(trackedRecord.id) || trackedRecord.archivedAt) {
@@ -381,7 +435,8 @@ export class SyncService {
 			}
 
 			const archivePaths: string[] = [];
-			for (const notePath of this.getTrackedPaths(trackedRecord)) {
+			const sourcePaths = this.getTrackedPaths(trackedRecord);
+			for (const notePath of sourcePaths) {
 				const archivePath = buildArchivePath(notePath, params.settings);
 				archivePaths.push(archivePath);
 				if (archivedPaths.has(notePath)) {
@@ -393,24 +448,59 @@ export class SyncService {
 					archivePathBySourcePath.set(notePath, archivePath);
 				}
 			}
-			recordsToMarkArchived.push({ record: trackedRecord, archivePaths });
+			recordsToMarkArchived.push({ record: trackedRecord, sourcePaths, archivePaths });
 		}
 
-		for (const { record, archivePaths } of recordsToMarkArchived) {
-			this.stateStore.markArchived([record.id], params.startedAt, archivePaths[0] ?? record.notePath, archivePaths);
+		for (const { record, sourcePaths, archivePaths } of recordsToMarkArchived) {
+			if (!params.dryRun) {
+				this.stateStore.markArchived([record.id], params.startedAt, archivePaths[0] ?? record.notePath, archivePaths, sourcePaths);
+			}
 		}
 
 		const archivedCount = archivePathBySourcePath.size;
 		return archivedCount;
 	}
 
-	private buildNoteSpecs(recordings: NormalizedPocketRecording[], settings: PocketSyncSettings): SyncNoteSpec[] {
+	private async buildNoteSpecs(recordings: NormalizedPocketRecording[], settings: PocketSyncSettings): Promise<SyncNoteSpec[]> {
 		const noteSpecs: SyncNoteSpec[] = [];
 		const insightGroups = new Map<string, NormalizedPocketRecording[]>();
 
 		for (const recording of recordings) {
 			if (recording.kind === "conversation") {
 				const trackedRecord = this.stateStore.getRecord(recording.id);
+				const activeOutputFormat = trackedRecord
+					? trackedRecord.activeOutputFormat ?? "separate-files"
+					: settings.conversationOutputFormat;
+				if (activeOutputFormat === "single-note") {
+					if (trackedRecord) {
+						if (!trackedRecord.singleNotePath) {
+							continue;
+						}
+						noteSpecs.push({
+							kind: "conversation",
+							artifactKind: "single-note",
+							targetPath: trackedRecord.singleNotePath,
+							previousPath: null,
+							groupKey: recording.id,
+							trackingIds: [recording.id],
+							recordings: [recording],
+						});
+						continue;
+					}
+
+					const initialPath = await resolveNewConversationSingleNotePath(this.app, recording, settings);
+					noteSpecs.push({
+						kind: "conversation",
+						artifactKind: "single-note",
+						targetPath: initialPath.targetPath,
+						previousPath: initialPath.previousPath,
+						groupKey: recording.id,
+						trackingIds: [recording.id],
+						recordings: [recording],
+					});
+					continue;
+				}
+
 				for (const artifactKind of CONVERSATION_ARTIFACT_ORDER) {
 					if (!this.shouldRenderConversationArtifact(recording, settings, artifactKind)) {
 						continue;
@@ -454,6 +544,42 @@ export class SyncService {
 		return noteSpecs;
 	}
 
+	private async writeNoteSpec(
+		noteSpec: SyncNoteSpec,
+		rendered: RenderedPocketNote,
+		recording: NormalizedPocketRecording,
+		settings: PocketSyncSettings,
+		dryRun: boolean,
+	): Promise<Awaited<ReturnType<typeof upsertPocketNote>>> {
+		const isSingleNote = noteSpec.kind === "conversation" && noteSpec.artifactKind === "single-note";
+		const conflictedPaths = new Set<string>();
+		for (;;) {
+			try {
+				return await upsertPocketNote({
+					app: this.app,
+					targetPath: noteSpec.targetPath,
+					previousPath: noteSpec.previousPath,
+					rendered,
+					noteManagementMode: settings.noteManagementMode,
+					includeFrontmatter: settings.includeFrontmatter,
+					dryRun,
+					requiredTargetIdentity: isSingleNote
+						? { recordingId: recording.id }
+						: undefined,
+				});
+			} catch (error) {
+				if (!(error instanceof PocketNoteTargetConflictError) || !isSingleNote || this.stateStore.getRecord(recording.id)) {
+					throw error;
+				}
+
+				conflictedPaths.add(noteSpec.targetPath);
+				const nextPath = await resolveNewConversationSingleNotePath(this.app, recording, settings, conflictedPaths);
+				noteSpec.targetPath = nextPath.targetPath;
+				noteSpec.previousPath = nextPath.previousPath;
+			}
+		}
+	}
+
 	private shouldRenderConversationArtifact(
 		recording: NormalizedPocketRecording,
 		settings: PocketSyncSettings,
@@ -471,14 +597,28 @@ export class SyncService {
 			const existing = pendingRecords.get(recording.id);
 			if (existing) {
 				existing.artifactPaths.push(finalPath);
+				if (noteSpec.kind === "conversation" && noteSpec.artifactKind !== "single-note" && noteSpec.artifactKind !== "insight") {
+					existing.separateFilePaths ??= {};
+					existing.separateFilePaths[noteSpec.artifactKind] = finalPath;
+				}
 				continue;
 			}
 
-			pendingRecords.set(recording.id, {
+			const pendingRecord: PendingTrackedRecord = {
 				recording,
 				groupKey: noteSpec.groupKey,
 				artifactPaths: [finalPath],
-			});
+			};
+			if (noteSpec.kind === "conversation") {
+				if (noteSpec.artifactKind === "single-note") {
+					pendingRecord.activeOutputFormat = "single-note";
+					pendingRecord.singleNotePath = finalPath;
+				} else if (noteSpec.artifactKind !== "insight") {
+					pendingRecord.activeOutputFormat = "separate-files";
+					pendingRecord.separateFilePaths = { [noteSpec.artifactKind]: finalPath };
+				}
+			}
+			pendingRecords.set(recording.id, pendingRecord);
 		}
 	}
 
@@ -572,7 +712,7 @@ export class SyncService {
 	}
 
 	private getTrackedPaths(record: PocketTrackedRecord): string[] {
-		return record.artifactPaths.length > 0 ? record.artifactPaths : [record.notePath];
+		return getActiveTrackedPaths(record);
 	}
 
 	private describeError(error: unknown): string {
@@ -587,4 +727,3 @@ export class SyncService {
 		return "Unknown Pocket Sync error.";
 	}
 }
-

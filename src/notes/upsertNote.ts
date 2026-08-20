@@ -1,4 +1,4 @@
-import { App, normalizePath, TFile } from "obsidian";
+import { App, normalizePath, parseYaml, TFile } from "obsidian";
 
 import { FRONTMATTER_BLOCK_KEY, MANAGED_BLOCK_END, MANAGED_BLOCK_START } from "../constants";
 import type { FrontmatterValueMap, NoteManagementMode, RenderedPocketNote } from "../types";
@@ -29,6 +29,9 @@ export interface UpsertPocketNoteParams {
 	noteManagementMode: NoteManagementMode;
 	includeFrontmatter: boolean;
 	dryRun: boolean;
+	requiredTargetIdentity?: {
+		recordingId: string;
+	};
 }
 
 export interface UpsertPocketNoteResult {
@@ -36,14 +39,23 @@ export interface UpsertPocketNoteResult {
 	finalPath: string;
 }
 
+export class PocketNoteTargetConflictError extends Error {}
+
 export async function upsertPocketNote(params: UpsertPocketNoteParams): Promise<UpsertPocketNoteResult> {
-	const { app, targetPath, previousPath, rendered, noteManagementMode, includeFrontmatter, dryRun } = params;
+	const { app, targetPath, previousPath, rendered, noteManagementMode, includeFrontmatter, dryRun, requiredTargetIdentity } = params;
 	const vault = app.vault;
 	const normalizedTargetPath = normalizePath(targetPath);
 	await ensureFolder(app, normalizedTargetPath);
 
 	let existingFile = getFileByPath(app, normalizedTargetPath);
 	let targetExistsOnDisk = existingFile ? false : await isExistingFile(app, normalizedTargetPath);
+	if (
+		(existingFile || targetExistsOnDisk) &&
+		requiredTargetIdentity &&
+		!await targetHasIdentity(app, existingFile, normalizedTargetPath, requiredTargetIdentity)
+	) {
+		throw new PocketNoteTargetConflictError(`Refusing to overwrite an unowned note at ${normalizedTargetPath}.`);
+	}
 	if (!existingFile && !targetExistsOnDisk && previousPath) {
 		const previousFile = getFileByPath(app, previousPath);
 		if (previousFile && previousFile.path !== normalizedTargetPath && !dryRun) {
@@ -80,6 +92,9 @@ export async function upsertPocketNote(params: UpsertPocketNoteParams): Promise<
 	}
 
 	if (existingFile) {
+		if (requiredTargetIdentity && !await targetHasIdentity(app, existingFile, normalizedTargetPath, requiredTargetIdentity)) {
+			throw new PocketNoteTargetConflictError(`The note at ${normalizedTargetPath} changed ownership before Pocket Sync could update it.`);
+		}
 		await vault.modify(existingFile, normalizedNextContent);
 		return {
 			action: "updated",
@@ -88,6 +103,9 @@ export async function upsertPocketNote(params: UpsertPocketNoteParams): Promise<
 	}
 
 	if (targetExistsOnDisk) {
+		if (requiredTargetIdentity && !await targetHasIdentity(app, null, normalizedTargetPath, requiredTargetIdentity)) {
+			throw new PocketNoteTargetConflictError(`The note at ${normalizedTargetPath} changed ownership before Pocket Sync could update it.`);
+		}
 		await vault.adapter.write(normalizedTargetPath, normalizedNextContent);
 		return {
 			action: "updated",
@@ -95,11 +113,48 @@ export async function upsertPocketNote(params: UpsertPocketNoteParams): Promise<
 		};
 	}
 
-	await vault.create(normalizedTargetPath, normalizedNextContent);
+	try {
+		await vault.create(normalizedTargetPath, normalizedNextContent);
+	} catch (error) {
+		if (requiredTargetIdentity && await isExistingFile(app, normalizedTargetPath)) {
+			throw new PocketNoteTargetConflictError(`A note appeared at ${normalizedTargetPath} before Pocket Sync could create it.`);
+		}
+		throw error;
+	}
 	return {
 		action: "created",
 		finalPath: normalizedTargetPath,
 	};
+}
+
+async function targetHasIdentity(
+	app: App,
+	file: TFile | null,
+	path: string,
+	requiredIdentity: NonNullable<UpsertPocketNoteParams["requiredTargetIdentity"]>,
+): Promise<boolean> {
+	if (file && file.extension !== "md") {
+		return false;
+	}
+
+	const content = file ? await app.vault.read(file) : await app.vault.adapter.read(path);
+	const frontmatterBody = extractFrontmatter(content).frontmatterBody;
+	if (!frontmatterBody) {
+		return false;
+	}
+
+	let frontmatter: unknown;
+	try {
+		frontmatter = parseYaml(frontmatterBody) as unknown;
+	} catch {
+		return false;
+	}
+	if (!frontmatter || typeof frontmatter !== "object") {
+		return false;
+	}
+
+	const properties = frontmatter as Record<string, unknown>;
+	return properties.recording_id === requiredIdentity.recordingId;
 }
 
 export async function archivePocketNote(
@@ -132,7 +187,7 @@ function buildFinalContent(
 		? `${rendered.body.trim()}\n`
 		: injectManagedBlock(stripManagedBlock(existingContent), rendered.body.trim());
 
-	return applyFrontmatter(body, rendered.frontmatter, includeFrontmatter).trimEnd() + "\n";
+	return applyFrontmatter(body, rendered.frontmatter, includeFrontmatter, rendered.requiredFrontmatter).trimEnd() + "\n";
 }
 
 function injectManagedBlock(existingContent: string, managedContent: string): string {
@@ -155,13 +210,20 @@ function stripManagedBlock(content: string): string {
 	return content.replace(new RegExp(`${escapeRegExp(MANAGED_BLOCK_START)}[\\s\\S]*?${escapeRegExp(MANAGED_BLOCK_END)}\\n?`, "m"), "").trim();
 }
 
-function applyFrontmatter(content: string, frontmatter: FrontmatterValueMap, includeFrontmatter: boolean): string {
+function applyFrontmatter(
+	content: string,
+	frontmatter: FrontmatterValueMap,
+	includeFrontmatter: boolean,
+	requiredFrontmatter: FrontmatterValueMap | undefined,
+): string {
 	const extracted = extractFrontmatter(content);
 	const cleanedBody = extracted.body.trimStart();
 	const existingBody = extracted.frontmatterBody;
 	const nextFrontmatter = includeFrontmatter
 		? upsertPocketFrontmatter(existingBody, frontmatter)
-		: removePocketFrontmatter(existingBody);
+		: requiredFrontmatter
+			? upsertPocketFrontmatter(existingBody, requiredFrontmatter)
+			: removePocketFrontmatter(existingBody);
 
 	if (!nextFrontmatter) {
 		return cleanedBody;
@@ -301,4 +363,3 @@ function getFileByPath(app: App, path: string | null): TFile | null {
 function escapeRegExp(value: string): string {
 	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
-

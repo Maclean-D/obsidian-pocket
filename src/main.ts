@@ -1,4 +1,4 @@
-import { Notice, Plugin } from "obsidian";
+import { Notice, Plugin, TFolder } from "obsidian";
 
 import { registerCommands } from "./commands";
 import type { PluginData, PocketSyncSettings, PocketSyncState, SyncOptions, SyncReport } from "./types";
@@ -6,6 +6,7 @@ import { DEFAULT_SETTINGS, DEFAULT_SYNC_STATE } from "./types";
 import { PocketSyncSettingTab, sanitizeSettings } from "./settings";
 import { SyncStateStore } from "./sync/stateStore";
 import { SyncService } from "./sync/syncService";
+import { normalizeTrackedRecord } from "./sync/trackingModel";
 import { SyncReportModal } from "./ui/SyncReportModal";
 
 export default class PocketSyncPlugin extends Plugin {
@@ -16,11 +17,15 @@ export default class PocketSyncPlugin extends Plugin {
 	private settingTab: PocketSyncSettingTab | null = null;
 	private stateStore!: SyncStateStore;
 	private syncService!: SyncService;
+	private saveQueue: Promise<void> = Promise.resolve();
 
 	async onload(): Promise<void> {
 		await this.loadPluginData();
 		this.stateStore = new SyncStateStore(this);
 		this.syncService = new SyncService(this.app, () => this.settings, this.stateStore);
+		this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {
+			void this.handleVaultRename(oldPath, file.path, file instanceof TFolder);
+		}));
 
 		this.addRibbonIcon("refresh-cw", "Sync Pocket now", () => {
 			void this.runSync({
@@ -59,10 +64,8 @@ export default class PocketSyncPlugin extends Plugin {
 				...(loadedData?.state?.records ?? {}),
 			},
 		};
-		for (const record of Object.values(this.syncState.records)) {
-			if (!Array.isArray(record.artifactPaths)) {
-				record.artifactPaths = record.notePath ? [record.notePath] : [];
-			}
+		for (const [recordingId, record] of Object.entries(this.syncState.records)) {
+			this.syncState.records[recordingId] = normalizeTrackedRecord(record);
 		}
 
 		if (this.syncState.lastSyncStatus === "running") {
@@ -73,10 +76,23 @@ export default class PocketSyncPlugin extends Plugin {
 	}
 
 	async savePluginData(): Promise<void> {
-		await this.saveData({
-			settings: this.settings,
-			state: this.syncState,
-		});
+		const saveOperation = this.saveQueue
+			.catch(() => undefined)
+			.then(async () => {
+				const snapshot = JSON.parse(JSON.stringify({
+					settings: this.settings,
+					state: this.syncState,
+				})) as PluginData;
+				await this.saveData(snapshot);
+			});
+		this.saveQueue = saveOperation;
+		await saveOperation;
+	}
+
+	private async handleVaultRename(oldPath: string, newPath: string, isFolder: boolean): Promise<void> {
+		if (this.stateStore.replaceTrackedPath(oldPath, newPath, isFolder)) {
+			await this.stateStore.persist();
+		}
 	}
 
 	async updateSettings(partial: Partial<PocketSyncSettings>): Promise<void> {

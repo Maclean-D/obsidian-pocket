@@ -9,7 +9,9 @@ import {
 export type SyncScope = "all" | "conversations" | "insights";
 export type NoteKind = "conversation" | "insight";
 export type ConversationArtifactKind = "transcript" | "summary" | "action-items" | "mindmap";
-export type NoteArtifactKind = ConversationArtifactKind | "insight";
+export type ConversationOutputFormat = "separate-files" | "single-note";
+export type ConversationSeparateFilePaths = Partial<Record<ConversationArtifactKind, string>>;
+export type NoteArtifactKind = ConversationArtifactKind | "single-note" | "insight";
 export type SyncStatus = "idle" | "running" | "success" | "error";
 export type SectionOrder = "summary-first" | "transcript-first";
 export type NoteManagementMode = "managed-block" | "entire-note";
@@ -44,6 +46,7 @@ export interface PocketSyncSettings {
 	pauseAutoSyncAfterFailures: boolean;
 	baseFolder: string;
 	conversationFolder: string;
+	conversationOutputFormat: ConversationOutputFormat;
 	insightsFolder: string;
 	groupByYearMonth: boolean;
 	conversationFolderTemplate: string;
@@ -176,6 +179,9 @@ export interface PocketTrackedRecord {
 	lastSeenAt: string;
 	lastSourceUpdatedAt: string;
 	archivedAt: string | null;
+	activeOutputFormat?: ConversationOutputFormat;
+	singleNotePath?: string | null;
+	separateFilePaths?: ConversationSeparateFilePaths;
 }
 
 export interface SyncReport {
@@ -244,6 +250,7 @@ export interface RenderedPocketNote {
 	title: string;
 	body: string;
 	frontmatter: FrontmatterValueMap;
+	requiredFrontmatter?: FrontmatterValueMap;
 }
 
 export interface SyncNoteSpec {
@@ -274,6 +281,7 @@ export const DEFAULT_SETTINGS: PocketSyncSettings = {
 	pauseAutoSyncAfterFailures: true,
 	baseFolder: DEFAULT_BASE_FOLDER,
 	conversationFolder: DEFAULT_CONVERSATION_FOLDER,
+	conversationOutputFormat: "separate-files",
 	insightsFolder: DEFAULT_INSIGHTS_FOLDER,
 	groupByYearMonth: false,
 	conversationFolderTemplate: "{{title}}",
@@ -315,4 +323,3 @@ export const DEFAULT_SYNC_STATE: PocketSyncState = {
 	dryRunNextSync: false,
 	records: {},
 };
-
