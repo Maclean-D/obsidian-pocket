@@ -12,6 +12,15 @@ Sync Pocket AI conversations and insights into Markdown notes.
 - Custom folders and filename templates
 - Writes Pocket metadata as normal Obsidian properties
 - Keeps note content in a managed block so you can add your own notes around it
+- Follow Pocket's spaces and folders when organizing notes
+- Recording metadata (space, folder, participants, keywords, tags) as properties
+- Folder index and an optional folder database view
+- Preview organization changes before applying them
+- Collision handling and recovery from interrupted syncs
+- Localized artifact filenames (English, Español, Français, Deutsch, Italiano, Português)
+- Year/month and day grouping, mirror mode, and rate-limit-aware sync
+
+See [Organized sync](docs/organized-sync.md) for the folder-based layout and metadata options.
 
 ## Setup
 
