@@ -17,7 +17,7 @@ Sync Pocket AI conversations and insights into Markdown notes.
 - Folder index and an optional folder database view
 - Preview organization changes before applying them
 - Collision handling and recovery from interrupted syncs
-- Localized artifact filenames (English, Español, Français, Deutsch, Italiano, Português)
+- Localized artifact filenames (English, Español, Français, Deutsch, Italiano, Português, 中文)
 - Year/month and day grouping, mirror mode, and rate-limit-aware sync
 
 See [Organized sync](docs/organized-sync.md) for the folder-based layout and metadata options.

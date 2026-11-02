@@ -316,7 +316,7 @@ export class PocketSyncSettingTab extends PluginSettingTab {
             .setDesc("Language for conversation filenames and navigation labels. Existing files are renamed on the next sync; Pocket content is not translated. English preserves the original filenames.")
             .addDropdown(dropdown => dropdown
                 .addOption("en", "English").addOption("es", "Español").addOption("fr", "Français")
-                .addOption("de", "Deutsch").addOption("it", "Italiano").addOption("pt", "Português")
+                .addOption("de", "Deutsch").addOption("it", "Italiano").addOption("pt", "Português").addOption("zh", "中文")
                 .setValue(this.plugin.settings.artifactLanguage)
                 .onChange(async value => { await this.plugin.updateSettings({ artifactLanguage: sanitizeArtifactLanguage(value) }); }));
 

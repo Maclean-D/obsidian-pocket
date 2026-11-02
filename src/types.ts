@@ -6,7 +6,7 @@ import {
 	DEFAULT_SYNC_INTERVAL_MINUTES,
 } from "./constants";
 
-export type ArtifactLanguage = "en" | "es" | "fr" | "de" | "it" | "pt";
+export type ArtifactLanguage = "en" | "es" | "fr" | "de" | "it" | "pt" | "zh";
 export type SyncScope = "all" | "conversations" | "insights";
 export type NoteKind = "conversation" | "insight";
 export type ConversationArtifactKind = "transcript" | "summary" | "action-items" | "mindmap";

@@ -67,6 +67,12 @@ export const ARTIFACT_LANGUAGES: Record<ArtifactLanguage, ArtifactVocabulary> = 
   folderIndex: { title: "Por pasta", unfiled: "Sem pasta", unknown: "Localização desconhecida", generated: "Índice gerado pelo Pocket Sync. Mantenha as anotações pessoais nas notas.", pending: "resumo pendente", empty: "Nenhuma gravação neste catálogo.", locale: "pt" },
   basesView: { columns: { title: "Gravação", space: "Espaço", folder: "Pasta", date: "Data", time: "Hora", tags: "Etiquetas", status: "Estado do resumo" }, viewName: "Gravações por pasta" },
  },
+ zh: {
+  filenames: { summary: "摘要.md", transcript: "转录.md", "action-items": "行动项.md", mindmap: "思维导图.md" },
+  labels: { summary: "摘要", transcript: "转录", "action-items": "行动项", mindmap: "思维导图" },
+  folderIndex: { title: "按文件夹", unfiled: "未分类", unknown: "未知位置", generated: "由 Pocket Sync 生成。请将个人注释保存在笔记中。", pending: "摘要待处理", empty: "此目录中没有录音。", locale: "zh" },
+  basesView: { columns: { title: "录音", space: "空间", folder: "文件夹", date: "日期", time: "时间", tags: "标签", status: "摘要状态" }, viewName: "按文件夹的录音" },
+ },
 };
 
 export function sanitizeArtifactLanguage(value: unknown): ArtifactLanguage {
