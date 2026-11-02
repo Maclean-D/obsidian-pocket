@@ -1,3 +1,4 @@
+import { FOLDER_INDEX_MARKER } from "../constants";
 import type { PocketOrganization } from "../types";
 import { artifactVocabulary } from "./artifactLanguage";
 import { formatRecordingDate } from "./metadata";
@@ -15,7 +16,7 @@ export interface FolderIndexEntry {
 function label(value: string): string { return value.replace(/[\r\n]+/g, " ").replace(/[\\`*_{}[\]()#+.!|<>]/g, "\\$&"); }
 
 /** Caller supplies only paths which exist after the successful sync. No filesystem effects. */
-export function renderFolderIndex(entries: FolderIndexEntry[], timeZone: string, language: unknown, includeMarker = true): string {
+export function renderFolderIndex(entries: FolderIndexEntry[], timeZone: string, language: unknown): string {
  const strings = artifactVocabulary(language).folderIndex;
  const groups = new Map<string, FolderIndexEntry[]>();
  for (const entry of entries) {
@@ -23,7 +24,7 @@ export function renderFolderIndex(entries: FolderIndexEntry[], timeZone: string,
   const group = org?.status === "resolved" ? org.folderPath.join(" / ") : org?.status === "unfiled" ? strings.unfiled : strings.unknown;
   groups.set(group, [...(groups.get(group) ?? []), entry]);
  }
- const lines = [`# ${strings.title}`, "", ...(includeMarker ? ["<!-- pocket-sync:folder-index -->", ""] : []), strings.generated, ""];
+ const lines = [`# ${strings.title}`, "", FOLDER_INDEX_MARKER, "", strings.generated, ""];
  for (const [group, items] of [...groups.entries()].sort(([a], [b]) => a.localeCompare(b, strings.locale))) {
   lines.push(`## ${label(group)}`, "");
   items.sort((a, b) => (Date.parse(b.recordingAt) || 0) - (Date.parse(a.recordingAt) || 0) || a.id.localeCompare(b.id));

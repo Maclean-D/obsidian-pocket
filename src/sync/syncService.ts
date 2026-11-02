@@ -1,6 +1,6 @@
 import { artifactVocabulary, isArtifactFilename, trackedArtifactKinds } from "../notes/artifactLanguage";
 import { App, TFile } from "obsidian";
-import { AUTO_SYNC_FAILURE_THRESHOLD, DEFAULT_FIRST_SYNC_DATE, MAX_PAGE_SIZE, MANAGED_BLOCK_START, MANAGED_BLOCK_END } from "../constants";
+import { AUTO_SYNC_FAILURE_THRESHOLD, DEFAULT_FIRST_SYNC_DATE, FOLDER_INDEX_MARKER, MAX_PAGE_SIZE, MANAGED_BLOCK_START, MANAGED_BLOCK_END, SYNC_SAFETY_LOOKBACK_DAYS } from "../constants";
 import { PathReservations, safePath } from "../core/paths";
 import { archivePocketNote, upsertPocketNote, buildFinalContent, type UpsertPocketNoteParams } from "../notes/upsertNote";
 import { buildArchivePath, buildConversationArtifactPath, buildInsightGroupKey, buildInsightPath, findTrackedArtifactPath } from "../notes/pathStrategy";
@@ -13,6 +13,7 @@ import { isInsightRecording, matchesTagFilters, matchesOrganizationFilters, norm
 import type { ConversationArtifactKind, NormalizedPocketRecording, PocketRecordingListItem, PocketSyncSettings, PocketTrackedRecord, SyncNoteSpec, SyncOptions, SyncReport } from "../types";
 import { SyncStateStore } from "./stateStore";
 import { beginOperation, finishOperation, recoverOperations, type JournalOperation } from "./journal";
+import { subtractDays, toPocketDateString } from "../utils/date";
 
 const ARTIFACTS: ConversationArtifactKind[] = ["summary", "transcript", "action-items", "mindmap"];
 interface PlannedNote {
@@ -56,10 +57,12 @@ export class SyncService {
 		const settings = { ...this.getSettings() };
 		const started = new Date().toISOString();
 		const dryRun = options.dryRun ?? false;
+		const syncWindow = this.computeSyncWindow(settings, options);
+		const windowStartMs = Date.parse(`${syncWindow.startDate}T00:00:00.000Z`);
 		const report: SyncReport = {
 			startedAt: started, finishedAt: started, scope: options.scope, reason: options.reason, dryRun,
 			created: 0, updated: 0, skipped: 0, archived: 0, moved: 0, propertiesUpdated: 0, pending: 0, conflicts: 0,
-			errors: [], warnings: [], processedIds: [], plan: [], windowStart: DEFAULT_FIRST_SYNC_DATE, windowEnd: started.slice(0, 10),
+			errors: [], warnings: [], processedIds: [], plan: [], windowStart: syncWindow.startDate, windowEnd: syncWindow.endDate,
 		};
 		try {
 			safePath(settings.baseFolder);
@@ -103,7 +106,10 @@ export class SyncService {
 				}
 				const tracked = this.stateStore.getRecord(item.id);
 				let recording: NormalizedPocketRecording = { ...(tracked?.cachedRecording ?? catalogRecording), ...item, kind, organization, metadataProvenance: { ...tracked?.cachedRecording?.metadataProvenance, ...item.metadataProvenance } };
-				const fetch = !options.organizationOnly && this.shouldFetch(item, tracked, settings, options);
+				const recordingAtMs = Date.parse(item.recordingAt);
+				const inWindow = !Number.isFinite(recordingAtMs) || recordingAtMs >= windowStartMs;
+				if (!inWindow && !tracked) continue;
+				const fetch = !options.organizationOnly && inWindow && this.shouldFetch(item, tracked, settings, options);
 				if (fetch) {
 					try {
 						const detail = await api.getRecordingDetails(item.id, { includeTranscript: settings.importTranscriptWhenAvailable && settings.includeTranscript, includeSummarizations: true });
@@ -120,7 +126,7 @@ export class SyncService {
 				}
 				if (settings.onlyImportCompletedSummaries && recording.summary?.processingStatus !== "completed") {
 					report.pending = (report.pending ?? 0) + 1;
-					if (tracked) metadataOnlyIds.add(item.id);
+					metadataOnlyIds.add(item.id);
 				}
 				recordings.push(recording);
 			}
@@ -163,7 +169,7 @@ export class SyncService {
 				report.plan?.push({ action: preview.moved ? "move" : preview.action === "updated" && metadataOnly ? "properties" : preview.action, recordingIds: spec.trackingIds, sourcePath: spec.previousPath, targetPath: spec.targetPath });
 				if (preview.preservedLegacy) report.warnings.push(`Preserved pre-migration content in ${spec.targetPath}; review it before removing it manually.`);
 			}
-			const archives = settings.deletedRecordingBehavior === "archive" ? await this.planArchives(api, seenIds, settings, options, reservations, report) : [];
+			const archives = settings.deletedRecordingBehavior === "archive" ? await this.planArchives(api, seenIds, settings, options, reservations, report, windowStartMs) : [];
 			const projected = new Map(this.stateStore.getTrackedRecords().map((record) => [record.id, { ...record, artifactPaths: [...record.artifactPaths] }]));
 			if (!dryRun) this.stateStore.beginSync(started);
 			for (const plan of plans) {
@@ -223,8 +229,14 @@ export class SyncService {
 				projected.set(record.id, record);
 				report.processedIds.push(record.id);
 			}
+			const originalSourcesByRecord = new Map<string, string[]>();
 			for (const archive of archives) {
-				const nextRecords = archive.ids.map((id) => projected.get(id)).filter((r): r is PocketTrackedRecord => Boolean(r)).map((r) => ({ ...r, notePath: r.notePath === archive.source ? archive.target : r.notePath, artifactPaths: r.artifactPaths.map((p) => p === archive.source ? archive.target : p), artifactPathsByKind: Object.fromEntries(Object.entries(trackedArtifactKinds(r)).map(([kind, path]) => [kind, path === archive.source ? archive.target : path])), archivedAt: started }));
+				for (const id of archive.ids) {
+					const sources = originalSourcesByRecord.get(id) ?? [];
+					sources.push(archive.source);
+					originalSourcesByRecord.set(id, sources);
+				}
+				const nextRecords = archive.ids.map((id) => projected.get(id)).filter((r): r is PocketTrackedRecord => Boolean(r)).map((r) => ({ ...r, notePath: r.notePath === archive.source ? archive.target : r.notePath, artifactPaths: r.artifactPaths.map((p) => p === archive.source ? archive.target : p), artifactPathsByKind: Object.fromEntries(Object.entries(trackedArtifactKinds(r)).map(([kind, path]) => [kind, path === archive.source ? archive.target : path])) }));
 				const archiveSource = this.app.vault.getAbstractFileByPath(archive.source);
 				if (!(archiveSource instanceof TFile)) throw new Error(`Archive source disappeared: ${archive.source}`);
 				const operation: JournalOperation = { id: `${started}:archive:${archive.target}`, recordingIds: archive.ids, sourcePath: archive.source, targetPath: archive.target, kind: "archive", nextRecords, previousContent: await this.app.vault.read(archiveSource) };
@@ -233,6 +245,11 @@ export class SyncService {
 				try { if (await archivePocketNote(this.app, archive.source, archive.target, dryRun)) report.archived += 1; } finally { this.ownedRename = false; }
 				for (const record of nextRecords) projected.set(record.id, record);
 				if (!dryRun) await finishOperation(this.stateStore, operation);
+			}
+			for (const [id, sources] of originalSourcesByRecord) {
+				const record = projected.get(id);
+				if (!record) continue;
+				if (sources.every((source) => !(this.app.vault.getAbstractFileByPath(source) instanceof TFile))) record.archivedAt = started;
 			}
 			if (!dryRun) {
 				this.stateStore.upsertRecords([...projected.values()]);
@@ -250,9 +267,43 @@ export class SyncService {
 		return report;
 	}
 
+	private computeSyncWindow(settings: PocketSyncSettings, options: SyncOptions): { startDate: string; endDate: string } {
+		const now = new Date();
+		if (options.backfillDays != null) {
+			const backfillDays = Math.max(1, Math.min(options.backfillDays, settings.maxDaysPerSyncRun));
+			return { startDate: toPocketDateString(subtractDays(now, backfillDays)), endDate: toPocketDateString(now) };
+		}
+		if (options.forceFullScan) {
+			return { startDate: DEFAULT_FIRST_SYNC_DATE, endDate: toPocketDateString(now) };
+		}
+		if (!this.stateStore.state.lastSuccessfulSyncAt) {
+			return { startDate: DEFAULT_FIRST_SYNC_DATE, endDate: toPocketDateString(now) };
+		}
+		const incrementalStart = subtractDays(new Date(this.stateStore.state.lastSuccessfulSyncAt), SYNC_SAFETY_LOOKBACK_DAYS);
+		const maxWindowStart = subtractDays(now, settings.maxDaysPerSyncRun);
+		const startDate = incrementalStart < maxWindowStart ? maxWindowStart : incrementalStart;
+		return { startDate: toPocketDateString(startDate), endDate: toPocketDateString(now) };
+	}
+
 	private buildNoteSpecs(recordings: NormalizedPocketRecording[], settings: PocketSyncSettings, metadataOnly: Set<string>, reservations: PathReservations): SyncNoteSpec[] {
 		const specs: SyncNoteSpec[] = [];
 		const groups = new Map<string, NormalizedPocketRecording[]>();
+		const allFiles = this.app.vault.getAllLoadedFiles();
+		const ownedPaths = new Set<string>();
+		for (const record of this.stateStore.getTrackedRecords()) {
+			for (const path of record.artifactPaths) ownedPaths.add(path);
+			if (record.notePath) ownedPaths.add(record.notePath);
+		}
+		const foreignDirs = new Set<string>();
+		for (const file of allFiles) {
+			if (!(file instanceof TFile) || ownedPaths.has(file.path)) continue;
+			let dir = file.parent?.path ?? "";
+			while (dir) {
+				foreignDirs.add(dir);
+				const idx = dir.lastIndexOf("/");
+				dir = idx > 0 ? dir.slice(0, idx) : "";
+			}
+		}
 		for (const recording of [...recordings].sort((a, b) => a.id.localeCompare(b.id))) {
 			const tracked = this.stateStore.getRecord(recording.id);
 			if (recording.kind === "insight") {
@@ -268,8 +319,7 @@ export class SyncService {
 			const oldParent = tracked?.notePath ? tracked.notePath.slice(0, tracked.notePath.lastIndexOf("/")) : null;
 			// Reuse empty previous organization folders and partially migrated folders.
             // Individual artifacts still reserve their destination against foreign files.
-            const ownedPaths = new Set(tracked?.artifactPaths ?? []);
-            const reusable = tracked && this.app.vault.getAllLoadedFiles().filter(file => file instanceof TFile && file.path.startsWith(`${parent}/`)).every(file => ownedPaths.has(file.path));
+            const reusable = Boolean(tracked) && !foreignDirs.has(parent);
             const folder = parent ? reservations.reserve(parent, recording.id, reusable ? parent : oldParent) : "";
 			for (const artifact of artifacts) {
 				const previousPath = findTrackedArtifactPath(tracked, artifact);
@@ -300,11 +350,17 @@ export class SyncService {
 
 	private nextRecord(old: PocketTrackedRecord | null, recording: NormalizedPocketRecording, spec: SyncNoteSpec, at: string): PocketTrackedRecord {
 		const record = { ...(old ?? this.catalogRecord(recording, at)) };
+		record.kind = recording.kind;
+		if (old && old.kind !== recording.kind) {
+			record.artifactPathsByKind = {};
+			record.artifactPaths = [];
+			record.notePath = "";
+		}
 		const paths = record.artifactPaths.length ? record.artifactPaths : record.notePath ? [record.notePath] : [];
 		record.artifactPathsByKind = trackedArtifactKinds(record);
-        if (spec.artifactKind !== "insight") record.artifactPathsByKind[spec.artifactKind] = spec.targetPath;
-        record.artifactPaths = Array.from(new Set([...paths.filter((path) => path !== spec.previousPath), spec.targetPath]));
-        record.notePath = findTrackedArtifactPath(record, "summary") ?? record.artifactPaths[0] ?? spec.targetPath;
+		if (spec.artifactKind !== "insight") record.artifactPathsByKind[spec.artifactKind] = spec.targetPath;
+		record.artifactPaths = Array.from(new Set([...paths.filter((path) => path !== spec.previousPath), spec.targetPath]));
+		record.notePath = findTrackedArtifactPath(record, "summary") ?? record.artifactPaths[0] ?? spec.targetPath;
 		record.groupKey = spec.groupKey;
 		record.archivedAt = null;
 		return record;
@@ -320,10 +376,12 @@ export class SyncService {
 		return settings.contentRefreshDays > 0 && age >= settings.contentRefreshDays * 86400000;
 	}
 
-	private async planArchives(api: PocketApi, seen: Set<string>, settings: PocketSyncSettings, options: SyncOptions, reservations: PathReservations, report: SyncReport): Promise<ArchivePlan[]> {
+	private async planArchives(api: PocketApi, seen: Set<string>, settings: PocketSyncSettings, options: SyncOptions, reservations: PathReservations, report: SyncReport, windowStartMs: number): Promise<ArchivePlan[]> {
 		const plans = new Map<string, ArchivePlan>();
 		for (const record of this.stateStore.getTrackedRecords()) {
 			if (seen.has(record.id) || record.archivedAt || !this.scopeMatches(options.scope, record.kind)) continue;
+			const recordAtMs = Date.parse(record.recordingAt);
+			if (Number.isFinite(recordAtMs) && recordAtMs < windowStartMs) continue;
 			if (!(record.kind === "conversation" ? settings.syncConversations : settings.syncInsights)) continue;
 			try { await api.getRecordingDetails(record.id, { includeTranscript: false, includeSummarizations: false }); continue; }
 			catch (error) { if (!(error instanceof PocketApiError) || error.status !== 404) { report.warnings.push(`Could not confirm deletion of ${record.id}; preserved.`); continue; } }
@@ -350,11 +408,19 @@ export class SyncService {
 		const indexTitle = artifactVocabulary(settings.artifactLanguage).folderIndex.title;
 		const targetPath = safePath(`${settings.baseFolder}/${indexTitle}.md`);
 		const existing = this.app.vault.getAbstractFileByPath(targetPath);
+		if (existing && !(existing instanceof TFile)) {
+			report.warnings.push(`Folder index destination ${targetPath} is not a note; it was preserved.`);
+			return;
+		}
 		const oldIndex = existing instanceof TFile ? await this.app.vault.read(existing) : "";
+		if (existing instanceof TFile && !oldIndex.includes(MANAGED_BLOCK_START) && !oldIndex.includes(FOLDER_INDEX_MARKER)) {
+			report.warnings.push(`Existing note at ${targetPath} is not owned by Pocket Sync; it was preserved.`);
+			return;
+		}
 		const indexStart = oldIndex.indexOf(MANAGED_BLOCK_START);
 		const indexEnd = oldIndex.indexOf(MANAGED_BLOCK_END, indexStart + MANAGED_BLOCK_START.length);
 		const baselineBody = indexStart >= 0 && indexEnd > indexStart ? oldIndex.slice(indexStart + MANAGED_BLOCK_START.length, indexEnd).trim() : undefined;
-		await upsertPocketNote({ app: this.app, targetPath, previousPath: existing ? targetPath : null, rendered: { title: indexTitle, body: renderFolderIndex(entries, settings.timeZone, settings.artifactLanguage, settings.noteManagementMode !== "mirror"), frontmatter: {} }, noteManagementMode: settings.noteManagementMode === "mirror" ? "mirror" : "managed-block", includeFrontmatter: false, dryRun, baselineBody });
+		await upsertPocketNote({ app: this.app, targetPath, previousPath: existing ? targetPath : null, rendered: { title: indexTitle, body: renderFolderIndex(entries, settings.timeZone, settings.artifactLanguage), frontmatter: {} }, noteManagementMode: settings.noteManagementMode === "mirror" ? "mirror" : "managed-block", includeFrontmatter: false, dryRun, baselineBody });
 		report.plan?.push({ action: "index", recordingIds: [], sourcePath: existing ? targetPath : null, targetPath });
 	}
 
