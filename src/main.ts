@@ -1,4 +1,5 @@
 import { renderBasesView } from "./notes/renderBasesView";
+import { artifactVocabulary } from "./notes/artifactLanguage";
 import { Notice, Plugin } from "obsidian";
 
 import { registerCommands } from "./commands";
@@ -136,7 +137,8 @@ export default class PocketSyncPlugin extends Plugin {
   if (!root || root.startsWith("/") || root.split("/").some(segment => !segment || segment === "." || segment === "..")) {
    new Notice("Choose a valid relative Pocket folder first."); return;
   }
-  const path = `${root}/Por carpeta.base`;
+  const viewTitle = artifactVocabulary(this.settings.artifactLanguage).folderIndex.title;
+  const path = `${root}/${viewTitle}.base`;
   try {
    if (this.app.vault.getAbstractFileByPath(path)) { new Notice(`A file already exists at ${path}; it was preserved.`); return; }
    let parent = "";
@@ -144,7 +146,7 @@ export default class PocketSyncPlugin extends Plugin {
     parent = parent ? `${parent}/${part}` : part;
     if (!this.app.vault.getAbstractFileByPath(parent)) await this.app.vault.createFolder(parent);
    }
-   const file = await this.app.vault.create(path, renderBasesView(root));
+   const file = await this.app.vault.create(path, renderBasesView(root, this.settings.artifactLanguage));
    await this.app.workspace.getLeaf(false).openFile(file);
   } catch {
    new Notice("Could not create the folder database view. Check the destination folder.", 7000);

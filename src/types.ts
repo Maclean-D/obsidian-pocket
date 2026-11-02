@@ -326,7 +326,7 @@ export interface SyncNoteSpec {
 export const DEFAULT_SETTINGS: PocketSyncSettings = {
  artifactLanguage: "en",
  organizationMode: "date",
- timeZone: "Europe/Madrid",
+ timeZone: "",
  includeFolderIds: "",
  excludeFolderIds: "",
  includeSpaceIds: "",

@@ -1,8 +1,17 @@
 import type { FrontmatterValueMap, NormalizedPocketRecording } from "../types";
 
+export function systemTimeZone(): string {
+ try { return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; }
+ catch { return "UTC"; }
+}
+
 export function validTimeZone(value: string | undefined): string {
- try { new Intl.DateTimeFormat("en", { timeZone: value || "Europe/Madrid" }).format(); return value || "Europe/Madrid"; }
- catch { return "Europe/Madrid"; }
+ const candidate = value?.trim();
+ if (candidate) {
+  try { new Intl.DateTimeFormat("en", { timeZone: candidate }).format(); return candidate; }
+  catch { /* fall through to the system time zone */ }
+ }
+ return systemTimeZone();
 }
 
 function dateParts(iso: string, timeZone: string): Record<string, string> | null {

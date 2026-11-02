@@ -347,13 +347,14 @@ export class SyncService {
 			const summaryPath = path && (this.app.vault.getAbstractFileByPath(path) instanceof TFile || dryRun && report.plan?.some((p) => p.targetPath === path)) ? path : null;
 			return { id: record.id, title: record.recordingTitle ?? record.cachedRecording?.title ?? record.id, recordingAt: record.recordingAt, summaryPath, organization: record.organization, pendingSummary: !summaryPath };
 		});
-		const targetPath = safePath(`${settings.baseFolder}/Por carpeta.md`);
+		const indexTitle = artifactVocabulary(settings.artifactLanguage).folderIndex.title;
+		const targetPath = safePath(`${settings.baseFolder}/${indexTitle}.md`);
 		const existing = this.app.vault.getAbstractFileByPath(targetPath);
 		const oldIndex = existing instanceof TFile ? await this.app.vault.read(existing) : "";
 		const indexStart = oldIndex.indexOf(MANAGED_BLOCK_START);
 		const indexEnd = oldIndex.indexOf(MANAGED_BLOCK_END, indexStart + MANAGED_BLOCK_START.length);
 		const baselineBody = indexStart >= 0 && indexEnd > indexStart ? oldIndex.slice(indexStart + MANAGED_BLOCK_START.length, indexEnd).trim() : undefined;
-		await upsertPocketNote({ app: this.app, targetPath, previousPath: existing ? targetPath : null, rendered: { title: "Por carpeta", body: renderFolderIndex(entries, settings.timeZone, settings.noteManagementMode !== "mirror"), frontmatter: {} }, noteManagementMode: settings.noteManagementMode === "mirror" ? "mirror" : "managed-block", includeFrontmatter: false, dryRun, baselineBody });
+		await upsertPocketNote({ app: this.app, targetPath, previousPath: existing ? targetPath : null, rendered: { title: indexTitle, body: renderFolderIndex(entries, settings.timeZone, settings.artifactLanguage, settings.noteManagementMode !== "mirror"), frontmatter: {} }, noteManagementMode: settings.noteManagementMode === "mirror" ? "mirror" : "managed-block", includeFrontmatter: false, dryRun, baselineBody });
 		report.plan?.push({ action: "index", recordingIds: [], sourcePath: existing ? targetPath : null, targetPath });
 	}
 

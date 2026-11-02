@@ -1,10 +1,10 @@
 import { Modal } from "obsidian";
 
 import type { SyncReport } from "../types";
-import { formatRecordingDateTime } from "../notes/metadata";
+import { formatRecordingDateTime, systemTimeZone } from "../notes/metadata";
 
 export class SyncReportModal extends Modal {
-	constructor(app: Modal["app"], private readonly report: SyncReport, private readonly timeZone = "Europe/Madrid") {
+	constructor(app: Modal["app"], private readonly report: SyncReport, private readonly timeZone = systemTimeZone()) {
 		super(app);
 	}
 

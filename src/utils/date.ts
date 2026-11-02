@@ -1,4 +1,4 @@
-import { formatRecordingDate, formatRecordingDateTime, formatRecordingYearMonth } from "../notes/metadata";
+import { formatRecordingDate, formatRecordingDateTime, formatRecordingYearMonth, systemTimeZone } from "../notes/metadata";
 export function subtractDays(date: Date, days: number): Date {
 	const next = new Date(date);
 	next.setDate(next.getDate() - days);
@@ -9,15 +9,15 @@ export function toPocketDateString(date: Date): string {
 	return date.toISOString().slice(0, 10);
 }
 
-export function formatLocalDate(dateLike: string, timeZone = "Europe/Madrid"): string {
+export function formatLocalDate(dateLike: string, timeZone = systemTimeZone()): string {
  return formatRecordingDate(dateLike, timeZone);
 }
 
-export function formatLocalYearMonth(dateLike: string, timeZone = "Europe/Madrid"): { year: string; month: string } {
+export function formatLocalYearMonth(dateLike: string, timeZone = systemTimeZone()): { year: string; month: string } {
  return formatRecordingYearMonth(dateLike, timeZone);
 }
 
-export function formatDisplayDateTime(dateLike: string | null, timeZone = "Europe/Madrid"): string {
+export function formatDisplayDateTime(dateLike: string | null, timeZone = systemTimeZone()): string {
  return dateLike ? formatRecordingDateTime(dateLike, timeZone) : "Never";
 }
 

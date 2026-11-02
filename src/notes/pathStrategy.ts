@@ -11,7 +11,7 @@ import type {
 	PocketSyncSettings,
 	PocketTrackedRecord,
 } from "../types";
-import { formatRecordingDate as formatLocalDate, formatRecordingYearMonth as formatLocalYearMonth } from "./metadata";
+import { formatRecordingDate as formatLocalDate, formatRecordingYearMonth as formatLocalYearMonth, systemTimeZone } from "./metadata";
 import { normalizeFolderPath, sanitizeFileComponent, truncate } from "../utils/text";
 
 export const CONVERSATION_ARTIFACT_FILENAMES: Record<ConversationArtifactKind, string> = artifactVocabulary("en").filenames;
@@ -79,7 +79,7 @@ export function buildInsightGroupKey(
 	recording: NormalizedPocketRecording,
 	mode: InsightMode,
 	dateSource: InsightDateSource,
-	timeZone = "Europe/Madrid",
+	timeZone = systemTimeZone(),
 ): string {
 	if (mode === "per-recording") {
 		return recording.id;
@@ -107,7 +107,7 @@ function buildConversationFolderPath(recording: NormalizedPocketRecording, setti
 	const featureFolder = safePath(normalizeFolderPath(settings.conversationFolder));
 	if (settings.organizationMode === "pocket") {
 		if (!recording.organization || recording.organization.status === "unknown") throw new Error(`Unknown Pocket folder for ${recording.id}`);
-		const segments = recording.organization.folderPath.length ? recording.organization.folderPath.map(safeSegment) : ["Sin carpeta"];
+		const segments = recording.organization.folderPath.length ? recording.organization.folderPath.map(safeSegment) : [artifactVocabulary(settings.artifactLanguage).folderIndex.unfiled];
 		const date = formatLocalDate(recording.recordingAt, settings.timeZone);
 		const yearMonth = formatLocalYearMonth(recording.recordingAt, settings.timeZone);
 		const grouping = settings.groupByYearMonth ? `/${yearMonth.year}/${yearMonth.month}` : "";
@@ -202,7 +202,7 @@ function getInsightDate(
 	recordings: NormalizedPocketRecording[],
 	mode: InsightMode,
 	dateSource: InsightDateSource,
-	timeZone = "Europe/Madrid",
+	timeZone = systemTimeZone(),
 ): string {
 	const sourceRecording = recordings[0];
 	if (!sourceRecording) {
@@ -220,7 +220,7 @@ function getInsightDate(
 	return getRecordingDatePrefix(sourceRecording, timeZone);
 }
 
-function getRecordingDatePrefix(recording: NormalizedPocketRecording, timeZone = "Europe/Madrid"): string {
+function getRecordingDatePrefix(recording: NormalizedPocketRecording, timeZone = systemTimeZone()): string {
 	if (recording.kind === "insight") {
 		const match = recording.id.match(/(\d{4}-\d{2}-\d{2})$/);
 		if (match?.[1]) {

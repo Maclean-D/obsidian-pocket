@@ -396,7 +396,7 @@ export class PocketSyncSettingTab extends PluginSettingTab {
   new Setting(containerEl).setName("Organization mode").setDesc("Follow Pocket spaces and folders, or keep date and template organization. Preview before migrating existing notes.")
    .addDropdown(dropdown => dropdown.addOption("date", "Date and template").addOption("pocket", "Follow Pocket folders")
     .setValue(this.plugin.settings.organizationMode).onChange(async value => { await this.plugin.updateSettings({ organizationMode: value === "pocket" ? "pocket" : "date" }); }));
-  new Setting(containerEl).setName("Time zone").setDesc("Time zone used for dates and grouping, for example `Europe/Madrid`.")
+  new Setting(containerEl).setName("Time zone").setDesc("Time zone used for dates and grouping (an IANA name, for example `America/New_York`).")
    .addText(text => {
     text.setValue(this.plugin.settings.timeZone);
     text.inputEl.addEventListener("change", () => {
@@ -414,7 +414,7 @@ export class PocketSyncSettingTab extends PluginSettingTab {
   }
   new Setting(containerEl).setName("Folder database view").setDesc("Create an optional table of summaries, filterable by space, folder, tags and date. Requires frontmatter and the built-in database feature.")
    .addButton(button => button.setButtonText("Create view").onClick(() => { void this.plugin.createBasesView(); }));
-  this.addToggleSetting(containerEl, "Generate folder index", "Update Por carpeta.md after successful syncs, with links to existing summaries and pending items.", this.plugin.settings.generateFolderIndex,
+  this.addToggleSetting(containerEl, "Generate folder index", "Write a folder index note after successful syncs, with links to existing summaries and pending items.", this.plugin.settings.generateFolderIndex,
    async value => this.plugin.updateSettings({ generateFolderIndex: value }));
   this.addNumberSetting(containerEl, "Content refresh days", "Refresh content periodically even when Pocket's update timestamp has not changed.", this.plugin.settings.contentRefreshDays,
    async value => this.plugin.updateSettings({ contentRefreshDays: value }));
