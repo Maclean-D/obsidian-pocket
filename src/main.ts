@@ -1,5 +1,7 @@
 import { Notice, Plugin } from "obsidian";
 
+import { createBasesView } from "./notes/createBasesView";
+
 import { registerCommands } from "./commands";
 import type { PluginData, PocketSyncSettings, PocketSyncState, SyncOptions, SyncReport } from "./types";
 import { DEFAULT_SETTINGS, DEFAULT_SYNC_STATE } from "./types";
@@ -12,6 +14,8 @@ export default class PocketSyncPlugin extends Plugin {
 	settings: PocketSyncSettings = { ...DEFAULT_SETTINGS };
 	syncState: PocketSyncState = { ...DEFAULT_SYNC_STATE, records: {} };
 
+	private lastPreviewReport: SyncReport | null = null;
+
 	private autoSyncIntervalId: number | null = null;
 	private settingTab: PocketSyncSettingTab | null = null;
 	private stateStore!: SyncStateStore;
@@ -21,6 +25,9 @@ export default class PocketSyncPlugin extends Plugin {
 		await this.loadPluginData();
 		this.stateStore = new SyncStateStore(this);
 		this.syncService = new SyncService(this.app, () => this.settings, this.stateStore);
+        this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {
+            void this.syncService.handleRename(oldPath, file.path);
+        }));
 
 		this.addRibbonIcon("refresh-cw", "Sync Pocket now", () => {
 			void this.runSync({
@@ -98,6 +105,11 @@ export default class PocketSyncPlugin extends Plugin {
 
 		try {
 			const report = await this.syncService.runSync(options);
+            if (!report.dryRun) this.lastPreviewReport = null;
+            if (report.dryRun) {
+                this.lastPreviewReport = report;
+                new SyncReportModal(this.app, report, this.settings.timeZone).open();
+            }
 			if (report.errors.length > 0) {
 				new Notice(report.errors[0] ?? "Pocket sync failed.", 8000);
 			} else {
@@ -116,6 +128,10 @@ export default class PocketSyncPlugin extends Plugin {
 		}
 	}
 
+ async createBasesView(): Promise<void> {
+  await createBasesView(this.app, this.settings);
+ }
+
 	async testPocketConnection(): Promise<void> {
 		try {
 			const result = await this.syncService.testConnection();
@@ -128,13 +144,13 @@ export default class PocketSyncPlugin extends Plugin {
 	}
 
 	openLastSyncReport(): void {
-		const report = this.syncState.lastSyncReport;
+		const report = this.lastPreviewReport ?? this.syncState.lastSyncReport;
 		if (!report) {
 			new Notice("Pocket sync has not produced a report yet.");
 			return;
 		}
 
-		new SyncReportModal(this.app, report).open();
+		new SyncReportModal(this.app, report, this.settings.timeZone).open();
 	}
 
 	async exportDiagnosticReport(): Promise<void> {

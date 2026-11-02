@@ -1,3 +1,4 @@
+import { formatRecordingDate, formatRecordingDateTime, formatRecordingYearMonth, systemTimeZone } from "../notes/metadata";
 export function subtractDays(date: Date, days: number): Date {
 	const next = new Date(date);
 	next.setDate(next.getDate() - days);
@@ -8,30 +9,20 @@ export function toPocketDateString(date: Date): string {
 	return date.toISOString().slice(0, 10);
 }
 
-export function formatLocalDate(dateLike: string): string {
-	const date = new Date(dateLike);
-	return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+export function formatLocalDate(dateLike: string, timeZone = systemTimeZone()): string {
+ return formatRecordingDate(dateLike, timeZone);
 }
 
-export function formatLocalYearMonth(dateLike: string): { year: string; month: string } {
-	const date = new Date(dateLike);
-	return {
-		year: String(date.getFullYear()),
-		month: pad(date.getMonth() + 1),
-	};
+export function formatLocalYearMonth(dateLike: string, timeZone = systemTimeZone()): { year: string; month: string } {
+ return formatRecordingYearMonth(dateLike, timeZone);
 }
 
-export function formatDisplayDateTime(dateLike: string | null): string {
-	if (!dateLike) {
-		return "Never";
-	}
-
-	const date = new Date(dateLike);
-	return `${formatLocalDate(dateLike)} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+export function formatDisplayDateTime(dateLike: string | null, timeZone = systemTimeZone()): string {
+ return dateLike ? formatRecordingDateTime(dateLike, timeZone) : "Never";
 }
 
 export function formatDurationSeconds(durationSeconds: number | null): string {
-	if (durationSeconds == null || Number.isNaN(durationSeconds)) {
+	if (durationSeconds == null || !Number.isFinite(durationSeconds) || durationSeconds < 0) {
 		return "Unknown";
 	}
 

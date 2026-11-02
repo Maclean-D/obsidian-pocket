@@ -6,13 +6,14 @@ import {
 	DEFAULT_SYNC_INTERVAL_MINUTES,
 } from "./constants";
 
+export type ArtifactLanguage = "en" | "es" | "fr" | "de" | "it" | "pt" | "zh";
 export type SyncScope = "all" | "conversations" | "insights";
 export type NoteKind = "conversation" | "insight";
 export type ConversationArtifactKind = "transcript" | "summary" | "action-items" | "mindmap";
 export type NoteArtifactKind = ConversationArtifactKind | "insight";
 export type SyncStatus = "idle" | "running" | "success" | "error";
 export type SectionOrder = "summary-first" | "transcript-first";
-export type NoteManagementMode = "managed-block" | "entire-note";
+export type NoteManagementMode = "managed-block" | "entire-note" | "mirror";
 export type DuplicateFilenamePolicy = "append-id" | "frontmatter";
 export type DeletedRecordingBehavior = "archive" | "leave";
 export type InsightMode = "per-recording" | "per-day";
@@ -26,7 +27,48 @@ export type SyncReason =
 	| "dry-run"
 	| "test-connection";
 
+export interface PocketFolder {
+ id: string;
+ name: string;
+ kind: string | null;
+ parentFolderId: string | null;
+ spaceId: string | null;
+}
+
+export interface PocketOrganization {
+ status: "resolved" | "unfiled" | "unknown";
+ folderId: string | null;
+ spaceId: string | null;
+ spaceName: string | null;
+ folderName: string | null;
+ folderPath: string[];
+ fingerprint: string;
+}
+
+export interface PocketRecordingMetadata {
+ folderId?: string | null;
+ spaceId?: string | null;
+ folderPath?: string;
+ organizationFingerprint?: string;
+ spaceName?: string;
+ folderName?: string;
+ organization?: PocketOrganization;
+ keywords?: string[];
+ participants?: string[];
+ metadataProvenance?: Record<string, string>;
+}
+
 export interface PocketSyncSettings {
+ artifactLanguage: ArtifactLanguage;
+ organizationMode: "date" | "pocket";
+ timeZone: string;
+ includeFolderIds: string;
+ excludeFolderIds: string;
+ includeSpaceIds: string;
+ excludeSpaceIds: string;
+ generateFolderIndex: boolean;
+ contentRefreshDays: number;
+ localMovePolicy: "follow-pocket" | "keep-local";
 	apiKey: string;
 	verboseSyncLogging: boolean;
 	syncConversations: boolean;
@@ -46,6 +88,7 @@ export interface PocketSyncSettings {
 	conversationFolder: string;
 	insightsFolder: string;
 	groupByYearMonth: boolean;
+	groupByDay: boolean;
 	conversationFolderTemplate: string;
 	insightFilenameTemplate: string;
 	duplicateFilenamePolicy: DuplicateFilenamePolicy;
@@ -83,7 +126,7 @@ export interface PocketTag {
 	updatedAt?: string | null;
 }
 
-export interface PocketRecordingListItem {
+export interface PocketRecordingListItem extends PocketRecordingMetadata {
 	id: string;
 	title: string;
 	durationSeconds: number | null;
@@ -151,7 +194,7 @@ export interface PocketSummary {
 	raw: unknown;
 }
 
-export interface NormalizedPocketRecording {
+export interface NormalizedPocketRecording extends PocketRecordingMetadata {
 	id: string;
 	title: string;
 	kind: NoteKind;
@@ -166,7 +209,15 @@ export interface NormalizedPocketRecording {
 	summary: PocketSummary | null;
 }
 
-export interface PocketTrackedRecord {
+export interface PocketTrackedRecord extends PocketRecordingMetadata {
+ artifactPathsByKind?: Partial<Record<ConversationArtifactKind, string>>;
+ recordingTitle?: string;
+ lastContentSyncedAt?: string;
+ pinnedLocalPath?: boolean;
+ cachedRecording?: NormalizedPocketRecording;
+ generatedBodies?: Record<string, string>;
+ /** Mirror-generated navigation; empty is proven absent, undefined is unknown/legacy. */
+ mirrorNavigation?: string;
 	id: string;
 	kind: NoteKind;
 	notePath: string;
@@ -178,7 +229,20 @@ export interface PocketTrackedRecord {
 	archivedAt: string | null;
 }
 
+export interface SyncPlanEntry {
+ action: string;
+ recordingIds: string[];
+ sourcePath: string | null;
+ targetPath: string;
+ reason?: string;
+}
+
 export interface SyncReport {
+ moved?: number;
+ propertiesUpdated?: number;
+ pending?: number;
+ conflicts?: number;
+ plan?: SyncPlanEntry[];
 	startedAt: string;
 	finishedAt: string;
 	scope: SyncScope;
@@ -196,6 +260,7 @@ export interface SyncReport {
 }
 
 export interface PocketSyncState {
+ pendingOperations?: Array<{id: string; recordingIds: string[]; sourcePath: string | null; targetPath: string; kind: "write" | "archive"}>;
 	lastAttemptedSyncAt: string | null;
 	lastSuccessfulSyncAt: string | null;
 	lastSyncStatus: SyncStatus;
@@ -213,6 +278,8 @@ export interface PluginData {
 }
 
 export interface SyncOptions {
+ organizationOnly?: boolean;
+ forceContentRefresh?: boolean;
 	scope: SyncScope;
 	reason: SyncReason;
 	dryRun?: boolean;
@@ -257,6 +324,16 @@ export interface SyncNoteSpec {
 }
 
 export const DEFAULT_SETTINGS: PocketSyncSettings = {
+ artifactLanguage: "en",
+ organizationMode: "date",
+ timeZone: "",
+ includeFolderIds: "",
+ excludeFolderIds: "",
+ includeSpaceIds: "",
+ excludeSpaceIds: "",
+ generateFolderIndex: true,
+ contentRefreshDays: 7,
+ localMovePolicy: "keep-local",
 	apiKey: "",
 	verboseSyncLogging: false,
 	syncConversations: true,
@@ -276,6 +353,7 @@ export const DEFAULT_SETTINGS: PocketSyncSettings = {
 	conversationFolder: DEFAULT_CONVERSATION_FOLDER,
 	insightsFolder: DEFAULT_INSIGHTS_FOLDER,
 	groupByYearMonth: false,
+	groupByDay: false,
 	conversationFolderTemplate: "{{title}}",
 	insightFilenameTemplate: "{{date}} {{title}}",
 	duplicateFilenamePolicy: "append-id",

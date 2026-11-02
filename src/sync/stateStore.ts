@@ -1,3 +1,4 @@
+import { trackedArtifactKinds } from "../notes/artifactLanguage";
 import type PocketSyncPlugin from "../main";
 import type { PocketTrackedRecord, SyncReport } from "../types";
 
@@ -13,7 +14,7 @@ export class SyncStateStore {
 	}
 
 	getRecordsForPath(notePath: string): PocketTrackedRecord[] {
-		return Object.values(this.state.records).filter((record) => record.notePath === notePath);
+		return Object.values(this.state.records).filter((record) => record.notePath === notePath || record.artifactPaths.includes(notePath));
 	}
 
 	getTrackedRecords(): PocketTrackedRecord[] {
@@ -72,6 +73,17 @@ export class SyncStateStore {
 			existing.archivedAt = archivedAt;
 			existing.notePath = archivePath;
 			existing.artifactPaths = artifactPaths;
+		}
+	}
+
+	handleRename(oldPath: string, newPath: string, pinLocal: boolean): void {
+		const replace = (path: string): string => path === oldPath ? newPath : path.startsWith(`${oldPath}/`) ? `${newPath}${path.slice(oldPath.length)}` : path;
+		for (const record of this.getTrackedRecords()) {
+			if (replace(record.notePath) === record.notePath && record.artifactPaths.every((path) => replace(path) === path)) continue;
+			record.artifactPathsByKind = Object.fromEntries(Object.entries(trackedArtifactKinds(record)).map(([kind, path]) => [kind, replace(path)]));
+			record.notePath = replace(record.notePath);
+			record.artifactPaths = record.artifactPaths.map(replace);
+			record.pinnedLocalPath = pinLocal;
 		}
 	}
 

@@ -1,5 +1,5 @@
 import type { NormalizedPocketRecording, PocketSyncSettings, RenderedPocketNote } from "../types";
-import { formatLocalDate } from "../utils/date";
+import { formatRecordingDate } from "./metadata";
 import { buildInlineTagLine, buildMetadataSection, buildPocketFrontmatter, buildSummarySection, buildTranscriptSection } from "./renderShared";
 
 export function renderInsightNote(
@@ -8,7 +8,7 @@ export function renderInsightNote(
 	syncedAt: string,
 ): RenderedPocketNote {
 	const first = recordings[0];
-	const titleDate = first ? formatLocalDate(first.recordingAt) : formatLocalDate(new Date().toISOString());
+	const titleDate = first ? formatRecordingDate(first.recordingAt, settings.timeZone) : formatRecordingDate(syncedAt, settings.timeZone);
 	const title =
 		settings.insightMode === "per-day"
 			? `${titleDate} Insights`

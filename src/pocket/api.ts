@@ -1,7 +1,8 @@
 import { requestUrl } from "obsidian";
 
 import { DEFAULT_REQUEST_TIMEOUT_MS, DEFAULT_RETRY_COUNT, DEFAULT_RETRY_DELAY_MS, MAX_PAGE_SIZE, POCKET_API_BASE_URL } from "../constants";
-import type { PocketSyncSettings } from "../types";
+import { normalizeFolders } from "./folders";
+import type { PocketFolder, PocketSyncSettings } from "../types";
 
 interface PocketApiEnvelope<T> {
 	success: boolean;
@@ -74,7 +75,13 @@ export class PocketApi {
 		return response.data ?? [];
 	}
 
-	async listAllRecordings(params: ListRecordingsParams): Promise<unknown[]> {
+ async listFolders(): Promise<PocketFolder[]> {
+  const response = await this.request<unknown[]>("/public/folders");
+  if (!Array.isArray(response.data)) throw new PocketApiError("Pocket returned an invalid folder catalog.");
+  return normalizeFolders(response.data);
+ }
+
+	async listAllRecordings(params: ListRecordingsParams = {}): Promise<unknown[]> {
 		const allItems: unknown[] = [];
 		let page = params.page ?? 1;
 		const limit = Math.min(params.limit ?? MAX_PAGE_SIZE, MAX_PAGE_SIZE);
@@ -161,6 +168,7 @@ export class PocketApi {
 				this.updateRateLimitState(response.headers);
 
 				if (response.status >= 200 && response.status < 300) {
+                    if (payload.success === false) throw new PocketApiError("Pocket reported an unsuccessful response.", response.status);
 					this.log("Pocket API request succeeded", {
 						path,
 						status: response.status,

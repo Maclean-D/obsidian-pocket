@@ -12,6 +12,7 @@ export const DEFAULT_FIRST_SYNC_DATE = "2025-10-05";
 
 export const MANAGED_BLOCK_START = "<!-- pocket-sync:managed:start -->";
 export const MANAGED_BLOCK_END = "<!-- pocket-sync:managed:end -->";
+export const FOLDER_INDEX_MARKER = "<!-- pocket-sync:folder-index -->";
 export const FRONTMATTER_BLOCK_KEY = "pocketSync";
 
 export const SUPPORTED_FILENAME_TOKENS = [
