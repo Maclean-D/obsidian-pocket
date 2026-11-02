@@ -1,3 +1,4 @@
+export { normalizeFolders, resolveRecordingOrganization, matchesOrganizationFilters } from "./folders";
 import { DEFAULT_INSIGHTS_TAG } from "../constants";
 import type {
 	NormalizedPocketRecording,
@@ -56,7 +57,8 @@ export function normalizeRecordingListItem(raw: unknown): PocketRecordingListIte
 	return {
 		id,
 		title,
-		durationSeconds: getNullableNumber(value, "duration"),
+        ...normalizeExplicitMetadata(value),
+		durationSeconds: validDuration(value.duration),
 		state: getNullableString(value, "state"),
 		language: getNullableString(value, "language"),
 		recordingAt,
@@ -94,19 +96,21 @@ export function normalizeRecordingDetail(
 
 	const summary = normalizeLatestSummary(value);
 	const transcript = normalizeTranscript(value);
-	const kind = isInsightRecording(fallback, settings.insightsTag) ? "insight" : "conversation";
+	const kind = isInsightRecording({ id, tags: Array.isArray(value.tags) ? tags : fallback.tags }, settings.insightsTag) ? "insight" : "conversation";
 
 	return {
+        ...fallback,
 		id,
 		title,
 		kind,
+        ...normalizeExplicitMetadata(value, fallback),
 		state: getNullableString(value, "state") ?? fallback.state,
-		durationSeconds: getNullableNumber(value, "duration") ?? fallback.durationSeconds,
+		durationSeconds: Object.prototype.hasOwnProperty.call(value, "duration") ? validDuration(value.duration) : fallback.durationSeconds,
 		language: getNullableString(value, "language") ?? fallback.language,
 		recordingAt,
 		createdAt,
 		updatedAt,
-		tags: tags.length > 0 ? tags : fallback.tags,
+		tags: Array.isArray(value.tags) ? tags : fallback.tags,
 		transcript,
 		summary,
 	};
@@ -355,11 +359,7 @@ function getNullableString(record: JsonRecord, key: string): string | null {
 
 function getNumber(record: JsonRecord, key: string): number | null {
 	const value = record[key];
-	return typeof value === "number" ? value : null;
-}
-
-function getNullableNumber(record: JsonRecord, key: string): number | null {
-	return getNumber(record, key);
+	return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function getBoolean(record: JsonRecord, key: string): boolean {
@@ -377,3 +377,21 @@ function coerceStringArray(values: unknown[]): string[] {
 		.filter(Boolean);
 }
 
+
+/** Only explicit API fields are accepted: no extraction of people or keywords from prose. */
+function normalizeExplicitMetadata(value: JsonRecord, fallback?: PocketRecordingListItem): import("../types").PocketRecordingMetadata {
+ const provenance = { ...fallback?.metadataProvenance };
+ const folderId = Object.prototype.hasOwnProperty.call(value, "folder_id") ? (value.folder_id === null ? null : getString(value, "folder_id") ?? undefined) : fallback?.folderId;
+ const keywords = Array.isArray(value.keywords) ? coerceStringArray(value.keywords) : fallback?.keywords;
+ const participants = Array.isArray(value.participants) ? coerceStringArray(value.participants) : fallback?.participants;
+ if (Array.isArray(value.keywords)) provenance.keywords = "Pocket API: keywords";
+ if (Array.isArray(value.participants)) provenance.participants = "Pocket API: participants";
+ if (typeof value.duration === "number" && Number.isFinite(value.duration) && value.duration >= 0) provenance.duration = "Pocket API: duration (seconds)";
+ if (typeof value.recording_at === "string") provenance.recorded_at = "Pocket API: recording_at";
+ else if (!fallback && typeof value.created_at === "string") provenance.recorded_at = "Pocket API: created_at (fallback)";
+ return { folderId, ...(keywords !== undefined ? { keywords } : {}), ...(participants !== undefined ? { participants } : {}), ...(Object.keys(provenance).length ? { metadataProvenance: provenance } : {}) };
+}
+
+function validDuration(value: unknown): number | null {
+ return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+}

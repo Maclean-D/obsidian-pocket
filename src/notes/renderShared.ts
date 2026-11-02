@@ -1,3 +1,4 @@
+import { formatRecordingDateTime, recordingMetadataProperties } from "./metadata";
 import type {
 	FrontmatterValueMap,
 	NormalizedPocketRecording,
@@ -5,7 +6,7 @@ import type {
 	PocketActionItemSubtask,
 	PocketSyncSettings,
 } from "../types";
-import { formatDisplayDateTime, formatDurationSeconds, formatTranscriptTimestamp } from "../utils/date";
+import { formatDurationSeconds, formatTranscriptTimestamp } from "../utils/date";
 import { dedupeStrings, toObsidianTag } from "../utils/text";
 
 export function buildInlineTagLine(
@@ -25,7 +26,7 @@ export function buildInlineTagLine(
 
 export function buildMetadataSection(
 	recordings: NormalizedPocketRecording[],
-	settings: Pick<PocketSyncSettings, "includeMetadataSection">,
+	settings: Pick<PocketSyncSettings, "includeMetadataSection" | "timeZone">,
 	syncedAt: string,
 ): string {
 	if (!settings.includeMetadataSection || recordings.length === 0) {
@@ -35,8 +36,8 @@ export function buildMetadataSection(
 	const lines = recordings.flatMap((recording) => {
 		const recordingLines = [
 			`- Recording title: ${recording.title}`,
-			`- Recorded: ${formatDisplayDateTime(recording.recordingAt)}`,
-			`- Updated in Pocket: ${formatDisplayDateTime(recording.updatedAt)}`,
+			`- Recorded: ${formatRecordingDateTime(recording.recordingAt, settings.timeZone)}`,
+			`- Updated in Pocket: ${formatRecordingDateTime(recording.updatedAt, settings.timeZone)}`,
 			`- Duration: ${formatDurationSeconds(recording.durationSeconds)}`,
 			`- Status: ${recording.state ?? "Unknown"}`,
 		];
@@ -45,7 +46,7 @@ export function buildMetadataSection(
 			recordingLines.push(`- Tags: ${recording.tags.map((tag) => tag.name).join(", ")}`);
 		}
 
-		recordingLines.push(`- Synced: ${formatDisplayDateTime(syncedAt)}`);
+		recordingLines.push(`- Synced: ${formatRecordingDateTime(syncedAt, settings.timeZone)}`);
 		return recordingLines;
 	});
 
@@ -57,7 +58,7 @@ export function buildSummarySection(
 	settings: Pick<
 		PocketSyncSettings,
 		"includeSummaryMarkdown" | "includeBulletHighlights" | "includeActionItems" | "renderActionItemsAsChecklist" | "includeActionItemDueDate" | "includeActionItemStatus" | "hideCompletedActionItems"
-	>,
+	> & Partial<Pick<PocketSyncSettings, "noteManagementMode">>,
 ): string {
 	const sections: string[] = [];
 	const summary = recording.summary;
@@ -154,7 +155,7 @@ export function buildActionItemsMarkdownBody(
 	settings: Pick<
 		PocketSyncSettings,
 		"renderActionItemsAsChecklist" | "includeActionItemDueDate" | "includeActionItemStatus" | "hideCompletedActionItems"
-	>,
+	> & Partial<Pick<PocketSyncSettings, "noteManagementMode">>,
 ): string {
 	if (!recording.summary || recording.summary.actionItems.length === 0) {
 		return "";
@@ -178,7 +179,7 @@ export function buildPocketFrontmatter(
 	recordings: NormalizedPocketRecording[],
 	settings: Pick<
 		PocketSyncSettings,
-		"includeTagsInFrontmatter" | "includeExtendedFrontmatterMetadata" | "addSourceFrontmatterField"
+		"includeTagsInFrontmatter" | "includeExtendedFrontmatterMetadata" | "addSourceFrontmatterField" | "timeZone"
 	>,
 	syncedAt: string,
 ): FrontmatterValueMap {
@@ -188,6 +189,7 @@ export function buildPocketFrontmatter(
 	}
 
 	const frontmatter: FrontmatterValueMap = {
+        ...recordingMetadataProperties(first, settings.timeZone),
 		kind: first.kind,
 		synced_at: syncedAt,
 	};
@@ -212,7 +214,7 @@ export function buildPocketFrontmatter(
 		frontmatter.recorded_at = first.recordingAt;
 		frontmatter.pocket_created_at = first.createdAt;
 		frontmatter.pocket_updated_at = first.updatedAt;
-		frontmatter.duration_seconds = first.durationSeconds ?? 0;
+		frontmatter.duration_seconds = first.durationSeconds;
 		frontmatter.state = first.state ?? "unknown";
 		if (first.language) {
 			frontmatter.language = first.language;
@@ -230,7 +232,7 @@ export function renderActionItems(
 	settings: Pick<
 		PocketSyncSettings,
 		"renderActionItemsAsChecklist" | "includeActionItemDueDate" | "includeActionItemStatus" | "hideCompletedActionItems"
-	>,
+	> & Partial<Pick<PocketSyncSettings, "noteManagementMode">>,
 ): string {
 	const lines = actionItems
 		.filter((item) => !(settings.hideCompletedActionItems && item.completed))
@@ -369,7 +371,7 @@ function renderActionItem(
 	settings: Pick<
 		PocketSyncSettings,
 		"renderActionItemsAsChecklist" | "includeActionItemDueDate" | "includeActionItemStatus"
-	>,
+	> & Partial<Pick<PocketSyncSettings, "noteManagementMode">>,
 ): string[] {
 	const prefix = settings.renderActionItemsAsChecklist
 		? actionItem.completed
@@ -377,7 +379,8 @@ function renderActionItem(
 			: "- [ ]"
 		: "-";
 	const suffix = buildActionItemSuffix(actionItem, settings);
-	const lines = [`${prefix} ${actionItem.title}${suffix}`];
+	const marker = settings.noteManagementMode === "mirror" ? "" : ` <!-- pocket-action:${encodeURIComponent(actionItem.id)} -->`;
+	const lines = [`${prefix} ${actionItem.title}${suffix}${marker}`];
 
 	if (actionItem.description) {
 		lines.push(`  - ${actionItem.description}`);
@@ -397,7 +400,7 @@ function renderSubtask(
 	settings: Pick<
 		PocketSyncSettings,
 		"renderActionItemsAsChecklist" | "includeActionItemDueDate" | "includeActionItemStatus"
-	>,
+	> & Partial<Pick<PocketSyncSettings, "noteManagementMode">>,
 ): string {
 	const prefix = settings.renderActionItemsAsChecklist
 		? subtask.completed
@@ -405,7 +408,8 @@ function renderSubtask(
 			: "  - [ ]"
 		: "  -";
 
-	return `${prefix} ${subtask.title}${buildActionItemSuffix(subtask, settings)}`;
+	const marker = settings.noteManagementMode === "mirror" ? "" : ` <!-- pocket-action:${encodeURIComponent(subtask.id)} -->`;
+	return `${prefix} ${subtask.title}${buildActionItemSuffix(subtask, settings)}${marker}`;
 }
 
 function buildActionItemSuffix(

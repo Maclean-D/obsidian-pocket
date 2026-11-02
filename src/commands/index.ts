@@ -3,6 +3,15 @@ import { DEFAULT_BACKFILL_DAYS } from "../constants";
 import { NumberPromptModal } from "../ui/NumberPromptModal";
 
 export function registerCommands(plugin: PocketSyncPlugin): void {
+ plugin.addCommand({ id: "create-pocket-bases-view", name: "Create folder database view", callback: () => { void plugin.createBasesView(); } });
+ for (const [id, name, options] of [
+  ["preview-pocket-organization", "Preview organization", { organizationOnly: true, dryRun: true }],
+  ["update-pocket-organization", "Update organization", { organizationOnly: true }],
+  ["update-pocket-content", "Update content", { forceContentRefresh: true }],
+ ] as const) {
+  plugin.addCommand({ id, name, callback: () => { void plugin.runSync({ scope: "all", reason: "manual", forceFullScan: true, ...options }); } });
+ }
+
 	plugin.addCommand({
 		id: "sync-pocket-now",
 		name: "Sync now",
